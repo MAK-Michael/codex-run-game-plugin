@@ -27,7 +27,8 @@
     "composerIcon": "./assets/icon.svg",
     "logo": "./assets/logo.svg",
     "screenshots": [
-      "./assets/screenshot-1.png"
+      "./assets/screenshot-1.png",
+      "./assets/screenshot-2.png"
     ],
     "defaultPrompt": [
       "Start Codex Run.",

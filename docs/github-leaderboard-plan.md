@@ -45,15 +45,15 @@ Gameplay, rendering, input, and scoring continue to run locally. The network is 
 ### Acceptance criteria
 
 - The baseline commit reproduces the current offline game.
-- `npm run verify` passes from `plugins/sunskip`.
+- `npm run verify` passes from `plugins/codex-run`.
 - The baseline contains no leaderboard behavior or network access.
 
 ## Phase 2: Make the plugin distributable from GitHub
 
 The current MCP configuration launches `node ./dist/server/index.js`, so a clean marketplace installation needs the built files to be present.
 
-1. Update `.gitignore` to allow `plugins/sunskip/dist/` while continuing to ignore all `node_modules/` directories.
-2. Commit the production UI and bundled MCP server under `plugins/sunskip/dist/`.
+1. Update `.gitignore` to allow `plugins/codex-run/dist/` while continuing to ignore all `node_modules/` directories.
+2. Commit the production UI and bundled MCP server under `plugins/codex-run/dist/`.
 3. Rename the marketplace identifier from the generic `personal` name to `codex-run` and give it a clear display name.
 4. Confirm that the installed plugin can launch from a clean clone without running `npm install`.
 5. Add GitHub Actions CI that:
@@ -194,7 +194,7 @@ This casual validation discourages accidental or basic abuse, but it cannot make
 
 ### Automated verification
 
-- Run `npm run verify` from `plugins/sunskip`.
+- Run `npm run verify` from `plugins/codex-run`.
 - Run the Worker and D1 test suite.
 - Test leaderboard ordering and tie-breaking.
 - Test one-best-score-per-player behavior.

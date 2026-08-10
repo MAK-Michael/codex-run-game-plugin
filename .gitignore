@@ -7,3 +7,5 @@
 !.env.example
 
 coverage/
+
+/videos/

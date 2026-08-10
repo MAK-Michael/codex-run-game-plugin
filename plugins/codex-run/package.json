@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MAK-Michael/codex-run-game-plugin.git",
-    "directory": "plugins/sunskip"
+    "directory": "plugins/codex-run"
   },
   "engines": {
     "node": ">=20"

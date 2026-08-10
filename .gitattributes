@@ -1,4 +1,4 @@
 * text=auto eol=lf
 
 *.png binary
-plugins/sunskip/dist/** linguist-generated=true -whitespace
+plugins/codex-run/dist/** linguist-generated=true -whitespace

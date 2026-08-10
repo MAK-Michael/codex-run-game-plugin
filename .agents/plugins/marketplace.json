@@ -8,7 +8,7 @@
       "name": "codex-run",
       "source": {
         "source": "local",
-        "path": "./plugins/sunskip"
+        "path": "./plugins/codex-run"
       },
       "policy": {
         "installation": "AVAILABLE",

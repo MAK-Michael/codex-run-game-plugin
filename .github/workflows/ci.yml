@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: plugins/sunskip
+        working-directory: plugins/codex-run
 
     steps:
       - name: Check out repository
@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: plugins/sunskip/package-lock.json
+          cache-dependency-path: plugins/codex-run/package-lock.json
 
       - name: Install dependencies
         run: npm ci
