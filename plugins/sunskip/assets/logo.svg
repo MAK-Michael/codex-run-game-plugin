@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Codex Run logo" shape-rendering="crispEdges">
+  <rect width="128" height="128" rx="24" fill="#F7F7F5"/>
+
+  <!-- A large pixel labyrinth mark derived from the in-game Codex identity. -->
+  <path fill="#53565C" d="M20 16h88v36H96V28H32v68h64V76h12v32H20V16Z"/>
+  <path fill="#53565C" d="M44 40h40v12H56v32h28v12H44V40Z"/>
+  <path fill="#16836F" d="M88 56h20v8H88z"/>
+
+  <!-- Minimal Chrome-runner baseline; kept subordinate to the mark. -->
+  <path fill="#53565C" d="M20 116h52v4H20zm60 0h12v4H80zm20 0h8v4h-8z"/>
+</svg>

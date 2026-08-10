@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex Run Auto-start"
+  short_description: "Offer the game during complex Codex work"
+  default_prompt: "Use $auto-start-codex-run to set my game auto-start preference."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "codex-run": {
+      "title": "Codex Run",
+      "description": "Launch the Codex-themed pixel runner as an embedded MCP App.",
+      "cwd": ".",
+      "command": "node",
+      "args": ["./dist/server/index.js"]
+    }
+  }
+}

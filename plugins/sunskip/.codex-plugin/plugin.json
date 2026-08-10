@@ -1,0 +1,40 @@
+{
+  "name": "codex-run",
+  "version": "0.1.0",
+  "description": "A Codex-themed pixel runner that plays directly inside chat.",
+  "author": {
+    "name": "Michael Aboukhalil"
+  },
+  "license": "MIT",
+  "keywords": [
+    "game",
+    "runner",
+    "canvas",
+    "mcp-app"
+  ],
+  "interface": {
+    "displayName": "Codex Run",
+    "shortDescription": "A tiny AI runner inside chat",
+    "longDescription": "Guide an animated Codex knot past Claude, Gemini, Grok, Kimi, and broken developer tools. Play on demand or let Codex automatically open the game during complex work, with picture-in-picture when the host confirms support.",
+    "developerName": "Michael Aboukhalil",
+    "category": "Entertainment",
+    "capabilities": [
+      "Interactive",
+      "Offline gameplay",
+      "Optional auto-start"
+    ],
+    "brandColor": "#53565C",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg",
+    "screenshots": [
+      "./assets/screenshot-1.png"
+    ],
+    "defaultPrompt": [
+      "Start Codex Run.",
+      "I want to play Codex Run.",
+      "Offer the Codex Run game during complex tasks."
+    ]
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
