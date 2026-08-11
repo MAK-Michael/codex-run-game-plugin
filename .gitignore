@@ -9,3 +9,6 @@
 coverage/
 
 /videos/
+
+# Local product planning; do not publish.
+/docs/github-leaderboard-plan.md
