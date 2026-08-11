@@ -212,6 +212,27 @@ canvas {
   image-rendering: pixelated;
 }
 
+.performance-hud {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  left: 10px;
+  min-width: 96px;
+  padding: 7px 8px;
+  border: 1px solid rgba(247, 247, 245, 0.3);
+  color: var(--paper);
+  background: rgba(31, 35, 36, 0.88);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  pointer-events: none;
+  white-space: pre;
+}
+
+.performance-hud[hidden] {
+  display: none;
+}
+
 .overlay {
   position: absolute;
   inset: 0;

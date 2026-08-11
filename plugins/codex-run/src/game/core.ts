@@ -33,6 +33,7 @@ export interface Obstacle {
 export interface GameState {
   status: GameStatus;
   player: PlayerState;
+  jumpBufferSeconds: number;
   obstacles: Obstacle[];
   speed: number;
   distance: number;
@@ -41,10 +42,18 @@ export interface GameState {
   nextObstacleId: number;
 }
 
+export interface GameUpdateResult {
+  state: GameState;
+  scored: boolean;
+  crashed: boolean;
+  jumped: boolean;
+}
+
 export type RandomSource = () => number;
 
 const GRAVITY = 2_180;
 const JUMP_VELOCITY = -790;
+export const JUMP_BUFFER_SECONDS = 0.12;
 const START_SPEED = 355;
 const MAX_SPEED = 790;
 const ACCELERATION = 8.4;
@@ -67,6 +76,7 @@ export function createGameState(status: GameStatus = "ready"): GameState {
   return {
     status,
     player: { y: GROUND_Y - PLAYER_HEIGHT, velocityY: 0 },
+    jumpBufferSeconds: 0,
     obstacles: [],
     speed: START_SPEED,
     distance: 0,
@@ -80,9 +90,9 @@ export function isGrounded(state: GameState): boolean {
   return state.player.y >= GROUND_Y - PLAYER_HEIGHT - 0.5 && state.player.velocityY >= 0;
 }
 
-export function jump(state: GameState): boolean {
-  if (state.status !== "running" || !isGrounded(state)) return false;
-  state.player.velocityY = JUMP_VELOCITY;
+export function requestJump(state: GameState): boolean {
+  if (state.status !== "running") return false;
+  state.jumpBufferSeconds = JUMP_BUFFER_SECONDS;
   return true;
 }
 
@@ -95,13 +105,14 @@ export function updateGame(
   state: GameState,
   deltaSeconds: number,
   random: RandomSource = Math.random,
-): { state: GameState; scored: boolean; crashed: boolean } {
+): GameUpdateResult {
   if (state.status !== "running" || deltaSeconds <= 0) {
-    return { state, scored: false, crashed: false };
+    return { state, scored: false, crashed: false, jumped: false };
   }
 
-  const dt = Math.min(deltaSeconds, 0.05);
+  const dt = deltaSeconds;
   const previousScore = state.score;
+  let jumped = consumeBufferedJump(state);
   state.speed = Math.min(MAX_SPEED, state.speed + ACCELERATION * dt);
   state.distance += state.speed * dt;
   state.score = Math.floor(state.distance / 9);
@@ -112,7 +123,9 @@ export function updateGame(
   if (state.player.y >= floorY) {
     state.player.y = floorY;
     state.player.velocityY = 0;
+    if (!jumped) jumped = consumeBufferedJump(state);
   }
+  state.jumpBufferSeconds = Math.max(0, state.jumpBufferSeconds - dt);
 
   for (const obstacle of state.obstacles) {
     obstacle.x -= state.speed * dt;
@@ -138,7 +151,15 @@ export function updateGame(
     state,
     scored: Math.floor(previousScore / 100) < Math.floor(state.score / 100),
     crashed,
+    jumped,
   };
+}
+
+function consumeBufferedJump(state: GameState): boolean {
+  if (state.jumpBufferSeconds <= 0 || !isGrounded(state)) return false;
+  state.jumpBufferSeconds = 0;
+  state.player.velocityY = JUMP_VELOCITY;
+  return true;
 }
 
 export function createObstacle(id: number, kind: ObstacleKind, variation = 0.5): Obstacle {

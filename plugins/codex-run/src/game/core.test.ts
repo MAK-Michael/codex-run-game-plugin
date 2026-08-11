@@ -2,26 +2,72 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   GROUND_Y,
+  JUMP_BUFFER_SECONDS,
   PLAYER_HEIGHT,
   PLAYER_X,
   collidesWithPlayer,
   createObstacle,
   createGameState,
-  jump,
+  requestJump,
   startOrRestart,
   updateGame,
   type Obstacle,
 } from "./core.js";
 
 describe("game state", () => {
-  it("only permits one jump before landing", () => {
+  it("starts a grounded jump from a buffered request", () => {
     const state = createGameState("running");
-    assert.equal(jump(state), true);
-    assert.equal(jump(state), false);
+    assert.equal(requestJump(state), true);
+    const result = updateGame(state, 1 / 120, () => 0.5);
+    assert.equal(result.jumped, true);
+    assert.ok(state.player.velocityY < 0);
+    assert.equal(state.jumpBufferSeconds, 0);
+  });
 
-    for (let i = 0; i < 180; i += 1) updateGame(state, 1 / 60, () => 0.5);
+  it("buffers one jump shortly before landing without allowing a mid-air jump", () => {
+    const state = createGameState("running");
+    state.player.y = GROUND_Y - PLAYER_HEIGHT - 1;
+    state.player.velocityY = 240;
+
+    assert.equal(requestJump(state), true);
+    assert.equal(updateGame(state, 1 / 120, () => 0.5).jumped, true);
     assert.equal(state.player.y, GROUND_Y - PLAYER_HEIGHT);
-    assert.equal(jump(state), true);
+    assert.ok(state.player.velocityY < 0);
+
+    assert.equal(requestJump(state), true);
+    const airborne = updateGame(state, 1 / 120, () => 0.5);
+    assert.equal(airborne.jumped, false);
+    assert.ok(state.jumpBufferSeconds > 0);
+    assert.ok(state.jumpBufferSeconds < JUMP_BUFFER_SECONDS);
+  });
+
+  it("refreshes rather than stacks repeated buffered requests", () => {
+    const state = createGameState("running");
+    state.player.y -= 120;
+    state.player.velocityY = 100;
+
+    requestJump(state);
+    updateGame(state, 0.04, () => 0.5);
+    assert.ok(state.jumpBufferSeconds < JUMP_BUFFER_SECONDS);
+    requestJump(state);
+    assert.equal(state.jumpBufferSeconds, JUMP_BUFFER_SECONDS);
+
+    state.player.y = GROUND_Y - PLAYER_HEIGHT - 1;
+    state.player.velocityY = 240;
+    assert.equal(updateGame(state, 1 / 120, () => 0.5).jumped, true);
+    assert.equal(state.jumpBufferSeconds, 0);
+  });
+
+  it("expires an early airborne request before landing", () => {
+    const state = createGameState("running");
+    state.player.y -= 180;
+    requestJump(state);
+    updateGame(state, JUMP_BUFFER_SECONDS + 0.01, () => 0.5);
+    assert.equal(state.jumpBufferSeconds, 0);
+
+    state.player.y = GROUND_Y - PLAYER_HEIGHT;
+    state.player.velocityY = 0;
+    assert.equal(updateGame(state, 1 / 120, () => 0.5).jumped, false);
   });
 
   it("accelerates and scores from distance without frame-rate dependence", () => {

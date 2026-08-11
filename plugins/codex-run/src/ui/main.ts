@@ -9,12 +9,19 @@ import {
   WORLD_WIDTH,
   createGameState,
   isAirborneObstacle,
-  jump,
+  requestJump,
   startOrRestart,
   updateGame,
   type GameState,
   type Obstacle,
 } from "../game/core.js";
+import {
+  FramePerformanceTracker,
+  advanceFixedStep,
+  computeCanvasBackingSize,
+  interpolate,
+  isJumpKeyInput,
+} from "../game/runtime.js";
 import { spriteAtlas, type SpriteName } from "./sprites.js";
 import {
   LeaderboardClient,
@@ -66,7 +73,7 @@ app.innerHTML = `
         <span class="brand-copy"><strong>CODEX RUN</strong><span>AI arcade · endless runner</span></span>
       </div>
       <div class="hud">
-        <div class="scoreboard" aria-live="polite">
+        <div class="scoreboard" aria-label="Current score and personal best">
           <span class="score-item"><span>BEST</span><strong id="best-score">00000</strong></span>
           <span class="score-item"><span>SCORE</span><strong id="run-score">00000</strong></span>
         </div>
@@ -79,7 +86,8 @@ app.innerHTML = `
       </div>
     </header>
     <section class="stage" id="stage" tabindex="0" role="application" aria-label="Ready to run. Press Space, W, Up Arrow, or tap to jump.">
-      <canvas id="game-canvas" width="1920" height="1080"></canvas>
+      <canvas id="game-canvas" width="960" height="540"></canvas>
+      <output class="performance-hud" id="performance-hud" aria-label="Game performance diagnostics" hidden></output>
       <div class="overlay" id="overlay">
         <div class="overlay-card">
           <p class="eyebrow" id="overlay-eyebrow">READY TO RUN</p>
@@ -135,6 +143,7 @@ app.innerHTML = `
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game-canvas")!;
 const ctx = canvas.getContext("2d")!;
+const performanceHud = document.querySelector<HTMLOutputElement>("#performance-hud")!;
 const stage = document.querySelector<HTMLElement>("#stage")!;
 const overlay = document.querySelector<HTMLDivElement>("#overlay")!;
 const overlayEyebrow = document.querySelector<HTMLElement>("#overlay-eyebrow")!;
@@ -172,7 +181,23 @@ const GAME_OVER_MESSAGES = [
   "Works on your machine. Just your machine.",
 ] as const;
 let game = createGameState();
-let lastFrame = performance.now();
+let lastFrame: number | undefined;
+let animationFrameId: number | undefined;
+let physicsAccumulator = 0;
+let renderAlpha = 1;
+let previousPlayerY = game.player.y;
+let previousDistance = game.distance;
+const previousObstacleX = new Map<number, number>();
+let canvasScaleX = 1;
+let canvasScaleY = 1;
+let nextHudUpdateAt = 0;
+let lastHudScore = -1;
+let lastHudBest = -1;
+let lastAnnouncedStatus: GameState["status"] | undefined;
+let lastAnnouncedMilestone = -1;
+let performanceHudVisible = false;
+let nextPerformanceHudUpdateAt = 0;
+const performanceTracker = new FramePerformanceTracker();
 let highScore = readNumber(HIGH_SCORE_KEY, window.openai?.widgetState?.highScore ?? 0);
 let soundEnabled = readPreference(SOUND_KEY) !== "off";
 let audioContext: AudioContext | undefined;
@@ -237,17 +262,37 @@ function formatScore(value: number): string {
   return Math.max(0, Math.floor(value)).toString().padStart(5, "0");
 }
 
-function refreshHud(): void {
-  scoreElement.textContent = formatScore(game.score);
-  bestElement.textContent = formatScore(Math.max(highScore, game.score));
-  stage.setAttribute(
-    "aria-label",
-    game.status === "running"
-      ? `Codex Run in progress. Score ${game.score}. Press Space, W, Up Arrow, or tap to jump.`
-      : game.status === "gameover"
-        ? `Run over. Score ${game.score}. Press Space or tap to run again.`
-        : "Ready to run. Press Space, W, Up Arrow, or tap to start.",
-  );
+function refreshHud(now = performance.now(), force = false): void {
+  if (force || now >= nextHudUpdateAt) {
+    const best = Math.max(highScore, game.score);
+    if (game.score !== lastHudScore) {
+      scoreElement.textContent = formatScore(game.score);
+      lastHudScore = game.score;
+    }
+    if (best !== lastHudBest) {
+      bestElement.textContent = formatScore(best);
+      lastHudBest = best;
+    }
+    nextHudUpdateAt = now + 100;
+  }
+
+  const milestone = Math.floor(game.score / 100) * 100;
+  if (
+    force ||
+    game.status !== lastAnnouncedStatus ||
+    (game.status === "running" && milestone !== lastAnnouncedMilestone)
+  ) {
+    stage.setAttribute(
+      "aria-label",
+      game.status === "running"
+        ? `Codex Run in progress. Score ${milestone}. Press Space, W, Up Arrow, or tap to jump.`
+        : game.status === "gameover"
+          ? `Run over. Score ${game.score}. Press Space or tap to run again.`
+          : "Ready to run. Press Space, W, Up Arrow, or tap to start.",
+    );
+    lastAnnouncedStatus = game.status;
+    lastAnnouncedMilestone = milestone;
+  }
 }
 
 function updateOverlay(): void {
@@ -282,10 +327,15 @@ function setLeaderboardOpen(open: boolean): void {
   leaderboardButton.dataset.active = open ? "true" : "false";
   leaderboardButton.setAttribute("aria-expanded", String(open));
   leaderboardButton.setAttribute("aria-label", open ? "Close leaderboard" : "Open leaderboard");
-  window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
+  if (open) {
+    renderLeaderboard();
+  } else {
+    window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
+  }
 }
 
 function renderLeaderboard(): void {
+  if (leaderboardPanel.hidden) return;
   leaderboardRefresh.disabled = leaderboardPhase === "loading" || !leaderboardClient;
   leaderboardList.replaceChildren();
 
@@ -475,8 +525,11 @@ function primaryAction(): void {
     overlayNetworkStatus.hidden = true;
     setLeaderboardOpen(false);
     updateOverlay();
+    resetRenderState();
+    refreshHud(performance.now(), true);
   }
-  if (jump(game)) playJumpSound();
+  requestJump(game);
+  startGameLoop();
 }
 
 playButton.addEventListener("click", (event) => {
@@ -535,8 +588,13 @@ stage.addEventListener("pointerdown", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
-  if (!["Space", "ArrowUp", "KeyW"].includes(event.code) || event.repeat) return;
   if ((event.target as HTMLElement | null)?.closest("button, input, form")) return;
+  if (event.shiftKey && event.code === "KeyP" && !event.repeat) {
+    event.preventDefault();
+    togglePerformanceHud();
+    return;
+  }
+  if (!isJumpKeyInput(event.code, event.repeat)) return;
   event.preventDefault();
   primaryAction();
 });
@@ -602,11 +660,11 @@ async function initializePermanentProfile(): Promise<void> {
   renderLeaderboard();
 }
 
-function drawBackground(state: GameState): void {
+function drawBackground(distance: number): void {
   ctx.fillStyle = "#f7f7f5";
   ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-  const cloudOffset = state.distance * 0.035;
+  const cloudOffset = distance * 0.035;
   drawDataCloud(768 - (cloudOffset % 1_180), 118, 1);
   drawDataCloud(330 - ((cloudOffset * 0.72 + 390) % 1_130), 196, 0.72);
   drawDataCloud(1_090 - ((cloudOffset * 0.84 + 80) % 1_170), 255, 0.56);
@@ -614,7 +672,7 @@ function drawBackground(state: GameState): void {
   ctx.fillStyle = "#53565c";
   ctx.fillRect(0, GROUND_Y, WORLD_WIDTH, 3);
 
-  const groundOffset = -(Math.floor(state.distance) % 68);
+  const groundOffset = -(Math.floor(distance) % 68);
   for (let x = groundOffset; x < WORLD_WIDTH + 80; x += 68) {
     ctx.fillRect(Math.round(x), GROUND_Y + 13, 32, 2);
     ctx.fillRect(Math.round(x + 43), GROUND_Y + 24, 12, 2);
@@ -622,7 +680,7 @@ function drawBackground(state: GameState): void {
   }
 
   ctx.fillStyle = "#d6d7d4";
-  const tokenOffset = -(Math.floor(state.distance * 0.16) % 180);
+  const tokenOffset = -(Math.floor(distance * 0.16) % 180);
   for (let x = tokenOffset; x < WORLD_WIDTH + 180; x += 180) {
     ctx.fillRect(Math.round(x), GROUND_Y + 67, 4, 4);
     ctx.fillRect(Math.round(x + 9), GROUND_Y + 67, 4, 4);
@@ -659,8 +717,8 @@ function drawDataCloud(x: number, y: number, scale: number): void {
   ctx.restore();
 }
 
-function drawPlayer(state: GameState): void {
-  const airborne = state.player.y < GROUND_Y - PLAYER_HEIGHT - 3;
+function drawPlayer(state: GameState, playerY: number): void {
+  const airborne = playerY < GROUND_Y - PLAYER_HEIGHT - 3;
   const runningFrame = Math.floor(runTime * 10) % 2 === 0 ? "codex-run-a" : "codex-run-b";
   const sprite: SpriteName =
     game.status === "gameover"
@@ -673,17 +731,17 @@ function drawPlayer(state: GameState): void {
           ? runningFrame
           : "codex-idle";
 
-  spriteAtlas.draw(ctx, sprite, PLAYER_X - 8, state.player.y - 2, 64, 64);
+  spriteAtlas.draw(ctx, sprite, PLAYER_X - 8, playerY - 2, 64, 64);
 
   if (!airborne && game.status === "running") {
     spriteAtlas.draw(ctx, "dust", PLAYER_X - 31, GROUND_Y - 30, 34, 34);
   }
   if (game.status === "gameover") {
-    spriteAtlas.draw(ctx, "crash-burst", PLAYER_X + 26, state.player.y - 8, 53, 53);
+    spriteAtlas.draw(ctx, "crash-burst", PLAYER_X + 26, playerY - 8, 53, 53);
   }
 }
 
-function drawObstacle(obstacle: Obstacle): void {
+function drawObstacle(obstacle: Obstacle, obstacleX: number): void {
   const alternate = Math.floor(runTime * 9 + obstacle.id) % 2 === 1;
   const sprite: SpriteName =
     obstacle.kind === "claude"
@@ -708,68 +766,170 @@ function drawObstacle(obstacle: Obstacle): void {
   const drawn = spriteAtlas.draw(
     ctx,
     sprite,
-    obstacle.x - padding,
+    obstacleX - padding,
     obstacle.y - padding,
     obstacle.width + padding * 2,
     obstacle.height + padding * 2,
   );
   if (!drawn) {
     ctx.fillStyle = "#53565c";
-    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+    ctx.fillRect(obstacleX, obstacle.y, obstacle.width, obstacle.height);
   }
 }
 
-function render(): void {
-  const ratio = Math.min(2, window.devicePixelRatio || 1);
-  const targetWidth = Math.round(WORLD_WIDTH * ratio);
-  const targetHeight = Math.round(WORLD_HEIGHT * ratio);
-  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-  }
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+function render(alpha = renderAlpha): void {
+  ctx.setTransform(canvasScaleX, 0, 0, canvasScaleY, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  drawBackground(game);
-  for (const obstacle of game.obstacles) drawObstacle(obstacle);
-  drawPlayer(game);
+  const distance = interpolate(previousDistance, game.distance, alpha);
+  const playerY = interpolate(previousPlayerY, game.player.y, alpha);
+  drawBackground(distance);
+  for (const obstacle of game.obstacles) {
+    const previousX = previousObstacleX.get(obstacle.id) ?? obstacle.x;
+    drawObstacle(obstacle, interpolate(previousX, obstacle.x, alpha));
+  }
+  drawPlayer(game, playerY);
+}
+
+function capturePreviousRenderState(): void {
+  previousPlayerY = game.player.y;
+  previousDistance = game.distance;
+  previousObstacleX.clear();
+  for (const obstacle of game.obstacles) previousObstacleX.set(obstacle.id, obstacle.x);
+}
+
+function resetRenderState(): void {
+  capturePreviousRenderState();
+  physicsAccumulator = 0;
+  renderAlpha = 1;
+}
+
+function resizeCanvas(): void {
+  const bounds = canvas.getBoundingClientRect();
+  const backing = computeCanvasBackingSize(
+    bounds.width,
+    bounds.height,
+    window.devicePixelRatio || 1,
+    WORLD_WIDTH,
+    WORLD_HEIGHT,
+  );
+  if (canvas.width !== backing.width || canvas.height !== backing.height) {
+    canvas.width = backing.width;
+    canvas.height = backing.height;
+  }
+  canvasScaleX = backing.scaleX;
+  canvasScaleY = backing.scaleY;
+}
+
+function startGameLoop(): void {
+  if (game.status !== "running" || document.hidden || animationFrameId !== undefined) return;
+  lastFrame = performance.now();
+  resetRenderState();
+  performanceTracker.reset();
+  nextPerformanceHudUpdateAt = 0;
+  animationFrameId = requestAnimationFrame(frame);
+}
+
+function stopGameLoop(): void {
+  if (animationFrameId !== undefined) cancelAnimationFrame(animationFrameId);
+  animationFrameId = undefined;
+  lastFrame = undefined;
+  physicsAccumulator = 0;
+}
+
+function finishRun(now: number): void {
+  playCrashSound();
+  if (game.score > highScore) {
+    highScore = game.score;
+    writePreference(HIGH_SCORE_KEY, String(highScore));
+    window.openai?.setWidgetState?.({ highScore });
+  }
+  updateOverlay();
+  refreshHud(now, true);
+  runReporter.report(activeRunId, {
+    score: game.score,
+    durationMs: Math.max(1, Math.round(runTime * 1_000)),
+  });
 }
 
 function frame(now: number): void {
-  const dt = Math.min((now - lastFrame) / 1_000, 0.05);
-  lastFrame = now;
-  runTime += dt;
-
-  if (game.status === "running") {
-    const result = updateGame(game, dt);
-    if (result.scored) playMilestoneSound();
-    if (result.crashed) {
-      playCrashSound();
-      if (game.score > highScore) {
-        highScore = game.score;
-        writePreference(HIGH_SCORE_KEY, String(highScore));
-        window.openai?.setWidgetState?.({ highScore });
-      }
-      updateOverlay();
-      runReporter.report(activeRunId, {
-        score: game.score,
-        durationMs: Math.max(1, Math.round(runTime * 1_000)),
-      });
-    }
+  animationFrameId = undefined;
+  if (game.status !== "running" || document.hidden) {
+    lastFrame = undefined;
+    renderAlpha = 1;
+    render();
+    updatePerformanceHud(now, true);
+    return;
   }
 
-  refreshHud();
+  const elapsedMs = Math.max(0, now - (lastFrame ?? now));
+  lastFrame = now;
+  performanceTracker.record(now, elapsedMs);
+
+  const advance = advanceFixedStep(physicsAccumulator, elapsedMs / 1_000, (deltaSeconds) => {
+    if (game.status !== "running") return;
+    capturePreviousRenderState();
+    const result = updateGame(game, deltaSeconds);
+    runTime += deltaSeconds;
+    if (result.jumped) playJumpSound();
+    if (result.scored) playMilestoneSound();
+    if (result.crashed) finishRun(now);
+  });
+  physicsAccumulator = advance.accumulatorSeconds;
+  renderAlpha = game.status === "running" ? advance.alpha : 1;
+
+  refreshHud(now);
   render();
-  requestAnimationFrame(frame);
+  updatePerformanceHud(now);
+  if (game.status === "running") {
+    animationFrameId = requestAnimationFrame(frame);
+  } else {
+    lastFrame = undefined;
+  }
+}
+
+function togglePerformanceHud(): void {
+  performanceHudVisible = !performanceHudVisible;
+  performanceHud.hidden = !performanceHudVisible;
+  updatePerformanceHud(performance.now(), true);
+}
+
+function updatePerformanceHud(now: number, force = false): void {
+  if (!performanceHudVisible || (!force && now < nextPerformanceHudUpdateAt)) return;
+  const stats = performanceTracker.snapshot(now);
+  performanceHud.textContent = stats.sampleCount === 0
+    ? "FPS  IDLE\n1%   --\nMAX  --\n>25  0  >50  0"
+    : [
+        `FPS  ${stats.fps.toFixed(1)}`,
+        `1%   ${stats.onePercentLowFps.toFixed(1)}`,
+        `MAX  ${stats.worstFrameMs.toFixed(1)}ms`,
+        `>25  ${stats.framesOver25Ms}  >50  ${stats.framesOver50Ms}`,
+      ].join("\n");
+  nextPerformanceHudUpdateAt = now + 250;
 }
 
 const resizeObserver = new ResizeObserver(() => {
+  resizeCanvas();
+  render();
   window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
 });
 resizeObserver.observe(document.querySelector(".shell")!);
 
-refreshHud();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopGameLoop();
+  } else if (game.status === "running") {
+    startGameLoop();
+  } else {
+    resizeCanvas();
+    render(1);
+  }
+});
+
+spriteAtlas.image.addEventListener("load", () => render(), { once: true });
+resizeCanvas();
+refreshHud(performance.now(), true);
 updateOverlay();
 renderLeaderboard();
+render(1);
 profileInitializationPromise = initializePermanentProfile();
 void refreshLeaderboard();
-requestAnimationFrame(frame);
