@@ -52,6 +52,36 @@ describe("MCP launch contract", () => {
     assert.match("text" in resource.contents[0]! ? resource.contents[0].text : "", /<canvas>/);
   });
 
+  it("allows only the configured leaderboard origin for network connections", async () => {
+    const configuredServer = createCodexRunServer(
+      "<!doctype html><title>Codex Run</title><canvas></canvas>",
+      {
+        preferencePath,
+        leaderboardOrigin: "https://codex-run.example.workers.dev",
+      },
+    );
+    const configuredClient = new Client({ name: "csp-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      configuredServer.connect(serverTransport),
+      configuredClient.connect(clientTransport),
+    ]);
+
+    try {
+      const resource = await configuredClient.readResource({ uri: GAME_RESOURCE_URI });
+      const meta = resource.contents[0]?._meta as {
+        ui?: { csp?: { connectDomains?: string[]; resourceDomains?: string[] } };
+      };
+      assert.deepEqual(meta.ui?.csp, {
+        connectDomains: ["https://codex-run.example.workers.dev"],
+        resourceDomains: [],
+      });
+    } finally {
+      await configuredClient.close();
+      await configuredServer.close();
+    }
+  });
+
   it("persists the user's auto-start preference", async () => {
     const { tools } = await client.listTools();
     assert.ok(tools.some((tool) => tool.name === SET_AUTO_START_TOOL_NAME));

@@ -20,6 +20,23 @@ import {
   type DisplayMode,
   type DisplayModeHost,
 } from "./display-mode.js";
+import {
+  LeaderboardClient,
+  type LeaderboardResponse,
+  type RunResponse,
+} from "../leaderboard/client.js";
+import {
+  LEADERBOARD_ORIGIN,
+  isLeaderboardOriginConfigured,
+} from "../leaderboard/config.js";
+import { CompletedRunReporter, type RunReport } from "../leaderboard/run-reporter.js";
+import {
+  MAX_NICKNAME_LENGTH,
+  loadLeaderboardLocalState,
+  saveLeaderboardResult,
+  saveNickname,
+  type LeaderboardLocalState,
+} from "../leaderboard/storage.js";
 
 type OpenAiHost = DisplayModeHost & {
   widgetState?: { highScore?: number };
@@ -48,6 +65,9 @@ app.innerHTML = `
           <span class="score-item"><span>HI</span><strong id="best-score">00000</strong></span>
           <span class="score-item"><span>RUN</span><strong id="run-score">00000</strong></span>
         </div>
+        <button class="icon-button" id="leaderboard-button" type="button" aria-label="Open shared leaderboard" title="Shared leaderboard" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 20v-8H3v8h4Zm7 0V4h-4v16h4Zm7 0V9h-4v11h4Z" fill="currentColor"/></svg>
+        </button>
         <button class="icon-button" id="sound-button" type="button" aria-label="Mute sound" title="Mute sound">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor"/><path class="sound-waves" d="M16 8c1.2 1 1.8 2.3 1.8 4S17.2 15 16 16m2-10.5c2 1.7 3 3.8 3 6.5s-1 4.8-3 6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
@@ -64,13 +84,37 @@ app.innerHTML = `
           <p class="eyebrow" id="overlay-eyebrow">MODEL READY</p>
           <h1 id="overlay-title">PRESS SPACE<br>TO RUN</h1>
           <p id="overlay-copy">Jump the rival AIs. Stay low beneath Grok. Dodge broken code and dev tools.</p>
+          <p class="overlay-network-status" id="overlay-network-status" role="status" aria-live="polite" hidden></p>
           <button class="primary-button" id="play-button" type="button">START SESSION <span aria-hidden="true">↵</span></button>
         </div>
       </div>
     </section>
+    <section class="leaderboard-panel" id="leaderboard-panel" aria-label="Shared leaderboard" hidden>
+      <div class="leaderboard-heading">
+        <div>
+          <p class="eyebrow">SHARED HIGH SCORES</p>
+          <h2>GLOBAL RUNS</h2>
+        </div>
+        <button class="secondary-button" id="leaderboard-refresh" type="button">REFRESH</button>
+      </div>
+      <p class="leaderboard-status" id="leaderboard-status" role="status" aria-live="polite">Loading shared scores…</p>
+      <div class="leaderboard-summary">
+        <span id="leaderboard-stats">— completed runs</span>
+        <span id="leaderboard-personal">No shared result yet</span>
+      </div>
+      <ol class="leaderboard-list" id="leaderboard-list" aria-label="All-time top scores"></ol>
+      <form class="nickname-form" id="nickname-form">
+        <label for="nickname-input">DISPLAY NAME <span>OPTIONAL · DUPLICATES ALLOWED</span></label>
+        <div class="nickname-row">
+          <input id="nickname-input" name="nickname" type="text" maxlength="${MAX_NICKNAME_LENGTH}" autocomplete="off" placeholder="Join after you play" aria-describedby="nickname-status">
+          <button class="secondary-button" id="nickname-save" type="submit">SAVE</button>
+        </div>
+        <p id="nickname-status">Runs without a name still count, but stay off the public board.</p>
+      </form>
+    </section>
     <footer class="footer">
       <span><i class="live-dot"></i><b>SPACE / ↑ / W / TAP</b> TO JUMP</span>
-      <span>NO NETWORK · NO TOKENS SPENT</span>
+      <span>LOCAL GAMEPLAY · NO TOKENS SPENT</span>
     </footer>
   </main>
 `;
@@ -82,23 +126,65 @@ const overlay = document.querySelector<HTMLDivElement>("#overlay")!;
 const overlayEyebrow = document.querySelector<HTMLElement>("#overlay-eyebrow")!;
 const overlayTitle = document.querySelector<HTMLElement>("#overlay-title")!;
 const overlayCopy = document.querySelector<HTMLElement>("#overlay-copy")!;
+const overlayNetworkStatus = document.querySelector<HTMLParagraphElement>("#overlay-network-status")!;
 const playButton = document.querySelector<HTMLButtonElement>("#play-button")!;
+const leaderboardButton = document.querySelector<HTMLButtonElement>("#leaderboard-button")!;
 const soundButton = document.querySelector<HTMLButtonElement>("#sound-button")!;
 const pipButton = document.querySelector<HTMLButtonElement>("#pip-button")!;
 const displayModeStatus = document.querySelector<HTMLParagraphElement>("#display-mode-status")!;
 const scoreElement = document.querySelector<HTMLElement>("#run-score")!;
 const bestElement = document.querySelector<HTMLElement>("#best-score")!;
+const leaderboardPanel = document.querySelector<HTMLElement>("#leaderboard-panel")!;
+const leaderboardRefresh = document.querySelector<HTMLButtonElement>("#leaderboard-refresh")!;
+const leaderboardStatus = document.querySelector<HTMLParagraphElement>("#leaderboard-status")!;
+const leaderboardStats = document.querySelector<HTMLElement>("#leaderboard-stats")!;
+const leaderboardPersonal = document.querySelector<HTMLElement>("#leaderboard-personal")!;
+const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!;
+const nicknameForm = document.querySelector<HTMLFormElement>("#nickname-form")!;
+const nicknameInput = document.querySelector<HTMLInputElement>("#nickname-input")!;
+const nicknameSave = document.querySelector<HTMLButtonElement>("#nickname-save")!;
+const nicknameStatus = document.querySelector<HTMLParagraphElement>("#nickname-status")!;
 
 const HIGH_SCORE_KEY = "codex-run.highScore.v1";
 const SOUND_KEY = "codex-run.sound.v1";
 let game = createGameState();
 let lastFrame = performance.now();
 let highScore = readNumber(HIGH_SCORE_KEY, window.openai?.widgetState?.highScore ?? 0);
-let soundEnabled = localStorage.getItem(SOUND_KEY) !== "off";
+let soundEnabled = readPreference(SOUND_KEY) !== "off";
 let audioContext: AudioContext | undefined;
 let runTime = 0;
 let displayModeStatusTimer: number | undefined;
 let pipUnavailable = false;
+const storage = resolveStorage();
+let leaderboardLocalState = storage ? loadLeaderboardLocalState(storage) : undefined;
+const leaderboardConfigured = isLeaderboardOriginConfigured();
+const leaderboardClient = leaderboardConfigured
+  ? new LeaderboardClient(LEADERBOARD_ORIGIN)
+  : undefined;
+let leaderboardData: LeaderboardResponse | undefined;
+let leaderboardPhase: "loading" | "empty" | "populated" | "unavailable" = "loading";
+let submissionMessage = "";
+let activeRunId = 0;
+const runReporter = new CompletedRunReporter(submitCompletedRun, () => {
+  submissionMessage = "Shared score unavailable. Local play is unaffected.";
+  renderLeaderboard();
+});
+
+function resolveStorage(): Storage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readPreference(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
 function readNumber(key: string, fallback: number): number {
   try {
@@ -137,6 +223,7 @@ function refreshHud(): void {
 function updateOverlay(): void {
   if (game.status === "running") {
     overlay.hidden = true;
+    overlayNetworkStatus.hidden = true;
     return;
   }
   overlay.hidden = false;
@@ -149,8 +236,146 @@ function updateOverlay(): void {
     overlayEyebrow.textContent = "MODEL READY";
     overlayTitle.innerHTML = "PRESS SPACE<br>TO RUN";
     overlayCopy.textContent = "Jump the rival AIs. Stay low beneath Grok. Dodge broken code and dev tools.";
+    overlayNetworkStatus.hidden = true;
     playButton.innerHTML = `START SESSION <span aria-hidden="true">↵</span>`;
   }
+}
+
+function setOverlaySubmissionStatus(message: string, runId: number): void {
+  if (runId !== activeRunId || game.status !== "gameover") return;
+  overlayNetworkStatus.textContent = message;
+  overlayNetworkStatus.hidden = message.length === 0;
+}
+
+function setLeaderboardOpen(open: boolean): void {
+  leaderboardPanel.hidden = !open;
+  leaderboardButton.dataset.active = open ? "true" : "false";
+  leaderboardButton.setAttribute("aria-expanded", String(open));
+  leaderboardButton.setAttribute("aria-label", open ? "Close shared leaderboard" : "Open shared leaderboard");
+  window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
+}
+
+function renderLeaderboard(): void {
+  leaderboardRefresh.disabled = leaderboardPhase === "loading" || !leaderboardClient;
+  leaderboardList.replaceChildren();
+
+  if (leaderboardPhase === "loading") {
+    leaderboardStatus.textContent = "Loading shared scores…";
+  } else if (leaderboardPhase === "unavailable") {
+    leaderboardStatus.textContent = leaderboardConfigured
+      ? "Shared scores are unavailable. Local play is unaffected."
+      : "Shared scores await the production Worker endpoint. Local play is ready.";
+  } else if (leaderboardPhase === "empty") {
+    leaderboardStatus.textContent = "No named scores yet. Be the first.";
+  } else {
+    leaderboardStatus.textContent = "All-time top 20 · earliest score wins a tie";
+  }
+
+  if (leaderboardData) {
+    leaderboardStats.textContent = `${formatCount(leaderboardData.stats.completedRuns)} completed runs · ${formatCount(leaderboardData.stats.approximatePlayers)} players`;
+    for (const entry of leaderboardData.entries) {
+      const item = document.createElement("li");
+      const rank = document.createElement("span");
+      const name = document.createElement("strong");
+      const score = document.createElement("span");
+      rank.textContent = `#${entry.rank}`;
+      name.textContent = entry.nickname;
+      score.textContent = formatScore(entry.score);
+      item.title = `Achieved ${new Date(entry.achievedAt).toLocaleString()}`;
+      item.append(rank, name, score);
+      leaderboardList.append(item);
+    }
+  } else {
+    leaderboardStats.textContent = "— completed runs";
+  }
+
+  if (!leaderboardLocalState) {
+    leaderboardPersonal.textContent = "Local storage unavailable · participation off";
+    nicknameInput.disabled = true;
+    nicknameSave.disabled = true;
+  } else {
+    nicknameInput.disabled = false;
+    nicknameSave.disabled = false;
+    const best = leaderboardLocalState.bestScore;
+    const rank = leaderboardLocalState.rank;
+    leaderboardPersonal.textContent =
+      best === null
+        ? "No shared result yet"
+        : rank === null
+          ? `Your shared best ${formatScore(best)} · add a name to rank`
+          : `Your shared best ${formatScore(best)} · last known rank #${rank}`;
+  }
+
+  if (submissionMessage) nicknameStatus.textContent = submissionMessage;
+  window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat().format(value);
+}
+
+async function refreshLeaderboard(fresh = false): Promise<void> {
+  if (!leaderboardClient) {
+    leaderboardPhase = "unavailable";
+    renderLeaderboard();
+    return;
+  }
+
+  leaderboardPhase = "loading";
+  renderLeaderboard();
+  try {
+    leaderboardData = await leaderboardClient.getLeaderboard(fresh);
+    leaderboardPhase = leaderboardData.entries.length === 0 ? "empty" : "populated";
+  } catch {
+    leaderboardPhase = "unavailable";
+  }
+  renderLeaderboard();
+}
+
+async function submitCompletedRun(run: RunReport, runId: number): Promise<void> {
+  if (!leaderboardClient || !leaderboardLocalState || !storage) {
+    const reason = leaderboardLocalState
+      ? "Shared score unavailable in this build."
+      : "Local storage unavailable; score stayed local.";
+    submissionMessage = reason;
+    setOverlaySubmissionStatus(reason, runId);
+    renderLeaderboard();
+    return;
+  }
+
+  submissionMessage = "Submitting this run in the background…";
+  setOverlaySubmissionStatus(submissionMessage, runId);
+  renderLeaderboard();
+  try {
+    const result = await leaderboardClient.submitRun({
+      playerId: leaderboardLocalState.playerId,
+      nickname: leaderboardLocalState.nickname,
+      score: run.score,
+      durationMs: run.durationMs,
+      rulesVersion: 1,
+    });
+    applyRunResponse(result);
+    submissionMessage = result.rank === null
+      ? "Run counted. Add a display name to join the public board."
+      : `Run counted · rank #${result.rank}${result.personalBest ? " · new shared best" : ""}`;
+    setOverlaySubmissionStatus(submissionMessage, runId);
+    renderLeaderboard();
+    if (result.personalBest) await refreshLeaderboard(true);
+  } catch {
+    submissionMessage = "Shared score unavailable. Local play is unaffected.";
+    setOverlaySubmissionStatus(submissionMessage, runId);
+    renderLeaderboard();
+  }
+}
+
+function applyRunResponse(result: RunResponse): void {
+  if (!leaderboardLocalState || !storage) return;
+  leaderboardLocalState = {
+    ...leaderboardLocalState,
+    rank: result.rank,
+    bestScore: result.bestScore,
+  };
+  saveLeaderboardResult(storage, result);
 }
 
 function ensureAudio(): AudioContext | undefined {
@@ -194,6 +419,9 @@ function primaryAction(): void {
   if (game.status !== "running") {
     game = startOrRestart(game);
     runTime = 0;
+    activeRunId = runReporter.startRun();
+    overlayNetworkStatus.hidden = true;
+    setLeaderboardOpen(false);
     updateOverlay();
   }
   if (jump(game)) playJumpSound();
@@ -204,6 +432,35 @@ playButton.addEventListener("click", (event) => {
   primaryAction();
 });
 
+leaderboardButton.addEventListener("click", () => {
+  setLeaderboardOpen(leaderboardPanel.hidden);
+});
+
+leaderboardRefresh.addEventListener("click", () => {
+  void refreshLeaderboard(true);
+});
+
+nicknameForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!storage || !leaderboardLocalState) {
+    nicknameStatus.textContent = "Local storage is unavailable; gameplay still works.";
+    return;
+  }
+
+  const nickname = saveNickname(storage, nicknameInput.value);
+  if (nickname === undefined) {
+    nicknameStatus.textContent = `Use ${MAX_NICKNAME_LENGTH} characters or fewer without control characters.`;
+    return;
+  }
+
+  leaderboardLocalState = { ...leaderboardLocalState, nickname };
+  nicknameInput.value = nickname ?? "";
+  submissionMessage = nickname
+    ? "Name saved for your next completed run."
+    : "Display name removed. Future runs will stay off the public board.";
+  renderLeaderboard();
+});
+
 stage.addEventListener("pointerdown", (event) => {
   if ((event.target as HTMLElement).closest("button")) return;
   event.preventDefault();
@@ -212,7 +469,7 @@ stage.addEventListener("pointerdown", (event) => {
 
 window.addEventListener("keydown", (event) => {
   if (!["Space", "ArrowUp", "KeyW"].includes(event.code) || event.repeat) return;
-  if ((event.target as HTMLElement | null)?.closest("button")) return;
+  if ((event.target as HTMLElement | null)?.closest("button, input, form")) return;
   event.preventDefault();
   primaryAction();
 });
@@ -479,6 +736,10 @@ function frame(now: number): void {
         window.openai?.setWidgetState?.({ highScore });
       }
       updateOverlay();
+      runReporter.report(activeRunId, {
+        score: game.score,
+        durationMs: Math.max(1, Math.round(runTime * 1_000)),
+      });
     }
   }
 
@@ -493,6 +754,9 @@ const resizeObserver = new ResizeObserver(() => {
 resizeObserver.observe(document.querySelector(".shell")!);
 
 initializeMcpAppsBridge();
+nicknameInput.value = leaderboardLocalState?.nickname ?? "";
 refreshHud();
 updateOverlay();
+renderLeaderboard();
+void refreshLeaderboard();
 requestAnimationFrame(frame);

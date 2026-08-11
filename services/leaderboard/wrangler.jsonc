@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "codex-run-leaderboard",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "workers_dev": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "codex-run-leaderboard-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "env": {
+    "dev": {
+      "workers_dev": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "codex-run-leaderboard-dev",
+          "database_id": "ff062373-1dd4-4b0c-9688-47dae1de4b5f",
+          "migrations_dir": "migrations"
+        }
+      ]
+    },
+    "prod": {
+      "workers_dev": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "codex-run-leaderboard-prod",
+          "database_id": "8319a7d8-01f0-4ff9-9456-5ca4b1961ffd",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
+  }
+}

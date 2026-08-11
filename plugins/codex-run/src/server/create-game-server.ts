@@ -11,6 +11,10 @@ import {
   resolveAutoStartPreferencePath,
   writeAutoStartPreference,
 } from "./auto-start-preference.js";
+import {
+  LEADERBOARD_ORIGIN,
+  isLeaderboardOriginConfigured,
+} from "../leaderboard/config.js";
 
 export const GAME_RESOURCE_URI = "ui://codex-run/game-v1.html";
 export const START_TOOL_NAME = "start_codex_run";
@@ -18,6 +22,7 @@ export const SET_AUTO_START_TOOL_NAME = "set_codex_run_auto_start";
 
 type CreateServerOptions = {
   preferencePath?: string;
+  leaderboardOrigin?: string;
 };
 
 export function loadBuiltGameHtml(): string {
@@ -29,6 +34,10 @@ export function createCodexRunServer(
   widgetHtml = loadBuiltGameHtml(),
   options: CreateServerOptions = {},
 ): McpServer {
+  const leaderboardOrigin = options.leaderboardOrigin ?? LEADERBOARD_ORIGIN;
+  const connectDomains = isLeaderboardOriginConfigured(leaderboardOrigin)
+    ? [leaderboardOrigin]
+    : [];
   const server = new McpServer({
     name: "codex-run",
     title: "Codex Run",
@@ -45,12 +54,12 @@ export function createCodexRunServer(
           ui: {
             prefersBorder: false,
             csp: {
-              connectDomains: [],
+              connectDomains,
               resourceDomains: [],
             },
           },
           "openai/widgetDescription":
-            "Codex Run is a self-contained, AI-themed pixel runner. Gameplay, scoring, sound, and high-score persistence run locally in the component.",
+            "Codex Run is an AI-themed pixel runner. Gameplay, scoring, sound, and local high-score persistence stay in the component; an optional shared leaderboard uses a public Worker API.",
           "openai/widgetPrefersBorder": false,
         },
       },

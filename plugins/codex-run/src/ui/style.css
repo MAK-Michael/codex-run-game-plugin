@@ -181,6 +181,8 @@ button {
 
 .icon-button:focus-visible,
 .primary-button:focus-visible,
+.secondary-button:focus-visible,
+.nickname-form input:focus-visible,
 .stage:focus-visible {
   outline: 3px solid var(--green);
   outline-offset: 3px;
@@ -320,6 +322,172 @@ canvas {
   line-height: 0;
 }
 
+.overlay .overlay-network-status {
+  margin: -8px 0 14px;
+  color: var(--green);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.overlay-network-status[hidden] {
+  display: none;
+}
+
+.leaderboard-panel {
+  display: grid;
+  gap: 13px;
+  padding: 18px 17px 20px;
+  border-top: 1px solid var(--line);
+  background: #f2f2ef;
+}
+
+.leaderboard-panel[hidden] {
+  display: none;
+}
+
+.leaderboard-heading,
+.leaderboard-summary,
+.nickname-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.leaderboard-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.leaderboard-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.secondary-button {
+  flex: none;
+  padding: 8px 10px;
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.secondary-button:hover:not(:disabled) {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.secondary-button:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.leaderboard-status,
+.nickname-form p {
+  margin: 0;
+  color: #777a7e;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.leaderboard-summary {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--paper);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.leaderboard-list {
+  display: grid;
+  max-height: 210px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.leaderboard-list:empty {
+  display: none;
+}
+
+.leaderboard-list li {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 76px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+
+.leaderboard-list li > span:first-child {
+  color: var(--green);
+  font-weight: 800;
+}
+
+.leaderboard-list strong {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-list li > span:last-child {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.09em;
+  text-align: right;
+}
+
+.nickname-form {
+  display: grid;
+  gap: 7px;
+  padding-top: 3px;
+}
+
+.nickname-form label {
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.nickname-form label span {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.nickname-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+  font-size: 10px;
+  outline: none;
+}
+
+.nickname-form input:disabled {
+  color: var(--muted);
+}
+
 .footer {
   display: flex;
   min-height: 42px;
@@ -376,6 +544,12 @@ canvas {
 
   .overlay p {
     margin-block: 9px 14px;
+  }
+
+  .leaderboard-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
   }
 }
 

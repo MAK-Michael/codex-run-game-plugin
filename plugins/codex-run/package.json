@@ -13,14 +13,23 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "scripts": {
-    "build": "npm run build:ui && npm run build:server",
+    "build": "pnpm run build:prod",
+    "build:all": "pnpm run build:ui && pnpm run build:server",
+    "build:dev": "CODEX_RUN_LEADERBOARD_ORIGIN=https://codex-run-leaderboard-dev.michael-ef6.workers.dev pnpm run build:all",
+    "build:prod": "CODEX_RUN_LEADERBOARD_ORIGIN=https://codex-run-leaderboard-prod.michael-ef6.workers.dev pnpm run build:all",
     "build:ui": "vite build",
-    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/server/index.js",
-    "dev": "vite",
+    "build:server": "node scripts/build-server.mjs",
+    "dev": "CODEX_RUN_LEADERBOARD_ORIGIN=https://codex-run-leaderboard-dev.michael-ef6.workers.dev vite",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
-    "verify": "npm run typecheck && npm test && npm run build",
+    "verify": "pnpm run typecheck && pnpm test && pnpm run build",
     "start": "node dist/server/index.js"
   },
   "dependencies": {

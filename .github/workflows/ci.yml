@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  verify-plugin:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -19,18 +19,51 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: plugins/codex-run/package-lock.json
+          cache: pnpm
+          cache-dependency-path: plugins/codex-run/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Verify source and build
-        run: npm run verify
+        run: pnpm run verify
 
       - name: Confirm committed build is current
         run: git diff --exit-code -- dist
+
+  verify-leaderboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/leaderboard
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: services/leaderboard/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Worker and D1 API
+        run: pnpm run verify

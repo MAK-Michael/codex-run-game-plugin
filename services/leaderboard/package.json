@@ -1,0 +1,42 @@
+{
+  "name": "codex-run-leaderboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  },
+  "scripts": {
+    "build": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler deploy --env=\"\" --dry-run --outdir dist",
+    "build:dev": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler deploy --env dev --dry-run --outdir dist/dev",
+    "build:prod": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler deploy --env prod --dry-run --outdir dist/prod",
+    "db:create:dev": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler d1 create codex-run-leaderboard-dev --env dev --binding DB --update-config",
+    "db:create:prod": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler d1 create codex-run-leaderboard-prod --env prod --binding DB --update-config",
+    "db:migrate:local": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler d1 migrations apply DB --env=\"\" --local --experimental-provision=false",
+    "db:migrate:dev": "node scripts/check-deployment-config.mjs dev && WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler d1 migrations apply DB --env dev --remote",
+    "db:migrate:prod": "node scripts/check-deployment-config.mjs prod && WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler d1 migrations apply DB --env prod --remote",
+    "deploy:dev": "node scripts/check-deployment-config.mjs dev && WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler deploy --env dev",
+    "deploy:prod": "node scripts/check-deployment-config.mjs prod && WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler deploy --env prod",
+    "dev": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log wrangler dev --env=\"\" --local",
+    "smoke": "node scripts/smoke-deployment.mjs",
+    "test": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/codex-run-leaderboard-wrangler.log vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm run typecheck && pnpm test && pnpm run build"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.20.3",
+    "@cloudflare/workers-types": "5.20260807.2",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.0.0"
+  }
+}
