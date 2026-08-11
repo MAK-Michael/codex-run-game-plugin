@@ -193,28 +193,6 @@ button {
   height: 16px;
 }
 
-.display-mode-status {
-  position: relative;
-  z-index: 4;
-  margin: 0;
-  padding: 8px 17px;
-  border-bottom: 1px solid var(--line);
-  color: var(--green);
-  background: rgba(22, 131, 111, 0.06);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
-
-.display-mode-status[hidden] {
-  display: none;
-}
-
-.display-mode-status[data-tone="error"] {
-  color: var(--ink);
-  background: rgba(83, 86, 92, 0.08);
-}
-
 .stage {
   position: relative;
   display: block;

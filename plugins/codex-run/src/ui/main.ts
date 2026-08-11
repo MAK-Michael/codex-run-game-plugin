@@ -17,11 +17,6 @@ import {
 } from "../game/core.js";
 import { spriteAtlas, type SpriteName } from "./sprites.js";
 import {
-  requestHostDisplayMode,
-  type DisplayMode,
-  type DisplayModeHost,
-} from "./display-mode.js";
-import {
   LeaderboardClient,
   type LeaderboardResponse,
   type RunResponse,
@@ -48,7 +43,7 @@ import {
   saveLeaderboardResult,
 } from "../leaderboard/storage.js";
 
-type OpenAiHost = DisplayModeHost & {
+type OpenAiHost = {
   widgetState?: { highScore?: number };
   setWidgetState?: (state: { highScore: number }) => void;
   notifyIntrinsicHeight?: (height: number) => void;
@@ -68,77 +63,72 @@ app.innerHTML = `
     <header class="topbar">
       <div class="brand" aria-label="Codex Run">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-copy"><strong>CODEX RUN</strong><span>Local model · session 01</span></span>
+        <span class="brand-copy"><strong>CODEX RUN</strong><span>AI arcade · endless runner</span></span>
       </div>
       <div class="hud">
         <div class="scoreboard" aria-live="polite">
-          <span class="score-item"><span>HI</span><strong id="best-score">00000</strong></span>
-          <span class="score-item"><span>RUN</span><strong id="run-score">00000</strong></span>
+          <span class="score-item"><span>BEST</span><strong id="best-score">00000</strong></span>
+          <span class="score-item"><span>SCORE</span><strong id="run-score">00000</strong></span>
         </div>
-        <button class="icon-button" id="leaderboard-button" type="button" aria-label="Open shared leaderboard" title="Shared leaderboard" aria-expanded="false">
+        <button class="icon-button" id="leaderboard-button" type="button" aria-label="Open leaderboard" title="Leaderboard" aria-expanded="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 20v-8H3v8h4Zm7 0V4h-4v16h4Zm7 0V9h-4v11h4Z" fill="currentColor"/></svg>
         </button>
         <button class="icon-button" id="sound-button" type="button" aria-label="Mute sound" title="Mute sound">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor"/><path class="sound-waves" d="M16 8c1.2 1 1.8 2.3 1.8 4S17.2 15 16 16m2-10.5c2 1.7 3 3.8 3 6.5s-1 4.8-3 6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
-        <button class="icon-button" id="pip-button" type="button" aria-label="Open picture in picture" title="Open picture in picture" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12" y="11" width="7" height="5" rx="1" fill="currentColor"/></svg>
-        </button>
       </div>
     </header>
-    <p class="display-mode-status" id="display-mode-status" role="status" aria-live="polite" hidden></p>
-    <section class="stage" id="stage" tabindex="0" role="application" aria-label="Game ready. Press Space, W, or Up Arrow to jump.">
+    <section class="stage" id="stage" tabindex="0" role="application" aria-label="Ready to run. Press Space, W, Up Arrow, or tap to jump.">
       <canvas id="game-canvas" width="1920" height="1080"></canvas>
       <div class="overlay" id="overlay">
         <div class="overlay-card">
-          <p class="eyebrow" id="overlay-eyebrow">MODEL READY</p>
-          <h1 id="overlay-title">PRESS SPACE<br>TO RUN</h1>
-          <p id="overlay-copy">Jump the rival AIs. Stay low beneath Grok. Dodge broken code and dev tools.</p>
+          <p class="eyebrow" id="overlay-eyebrow">READY TO RUN</p>
+          <h1 id="overlay-title">OUTRUN THE<br>AI PACK</h1>
+          <p id="overlay-copy">Jump Claude, Gemini, and Kimi. Duck under Grok. Dodge the code traps.</p>
           <p class="overlay-network-status" id="overlay-network-status" role="status" aria-live="polite" hidden></p>
-          <button class="primary-button" id="play-button" type="button">START SESSION <span aria-hidden="true">↵</span></button>
+          <button class="primary-button" id="play-button" type="button">START RUN <span aria-hidden="true">↵</span></button>
         </div>
       </div>
     </section>
-    <section class="leaderboard-panel" id="leaderboard-panel" aria-label="Shared leaderboard" hidden>
+    <section class="leaderboard-panel" id="leaderboard-panel" aria-label="Leaderboard" hidden>
       <div class="leaderboard-heading">
         <div>
-          <p class="eyebrow">SHARED HIGH SCORES</p>
-          <h2>GLOBAL RUNS</h2>
+          <p class="eyebrow">ALL-TIME LEADERBOARD</p>
+          <h2>TOP RUNNERS</h2>
         </div>
         <button class="secondary-button" id="leaderboard-refresh" type="button">REFRESH</button>
       </div>
-      <p class="leaderboard-status" id="leaderboard-status" role="status" aria-live="polite">Loading shared scores…</p>
+      <p class="leaderboard-status" id="leaderboard-status" role="status" aria-live="polite">Loading leaderboard…</p>
       <div class="leaderboard-summary">
-        <span id="leaderboard-stats">— completed runs</span>
-        <span id="leaderboard-personal">No shared result yet</span>
+        <span id="leaderboard-personal">No leaderboard score yet</span>
       </div>
-      <ol class="leaderboard-list" id="leaderboard-list" aria-label="All-time top scores"></ol>
+      <ol class="leaderboard-list" id="leaderboard-list" aria-label="Top 20 all-time scores"></ol>
       <p class="leaderboard-status submission-status" id="submission-status" role="status" aria-live="polite" hidden></p>
       <div class="profile-state" id="profile-loading">
-        <span>INSTALLATION PROFILE</span>
-        <p>Loading permanent leaderboard identity… Local play is ready.</p>
+        <span>PLAYER PROFILE</span>
+        <p>Loading your leaderboard profile… You can play now.</p>
       </div>
       <form class="nickname-form" id="nickname-form" hidden>
-        <label for="nickname-input">CHOOSE DISPLAY NAME <span>ONE TIME · DUPLICATES ALLOWED</span></label>
+        <label for="nickname-input">CHOOSE DISPLAY NAME <span>SET ONCE · DUPLICATES OK</span></label>
         <div class="nickname-row">
-          <input id="nickname-input" name="nickname" type="text" maxlength="${MAX_NICKNAME_LENGTH}" autocomplete="off" placeholder="Permanent public name" aria-describedby="nickname-status">
+          <input id="nickname-input" name="nickname" type="text" maxlength="${MAX_NICKNAME_LENGTH}" autocomplete="off" placeholder="Your leaderboard name" aria-describedby="nickname-status">
           <button class="secondary-button" id="nickname-save" type="submit">LOCK NAME</button>
         </div>
-        <p id="nickname-status">Once locked, this name cannot be renamed or removed from this Codex installation. You can keep playing unnamed.</p>
+        <p id="nickname-status">Choose carefully: this name is permanent on this Codex installation. Playing unnamed is fine.</p>
       </form>
       <div class="profile-state profile-locked" id="profile-locked" hidden>
-        <span>DISPLAY NAME · LOCKED</span>
+        <span>DISPLAY NAME · PERMANENT</span>
         <strong id="profile-display-name"></strong>
-        <p>This permanent installation name cannot be renamed or removed.</p>
+        <p>This name is tied to this Codex installation and cannot be changed or removed.</p>
       </div>
       <div class="profile-state" id="profile-unavailable" hidden>
-        <span>PERMANENT PROFILE UNAVAILABLE</span>
-        <p>Codex cannot reach installation profile storage. Local gameplay still works.</p>
+        <span>LEADERBOARD PROFILE OFFLINE</span>
+        <p>Could not load your leaderboard profile. Local play still works.</p>
       </div>
     </section>
     <footer class="footer">
       <span><i class="live-dot"></i><b>SPACE / ↑ / W / TAP</b> TO JUMP</span>
-      <span>LOCAL GAMEPLAY · NO TOKENS SPENT</span>
+      <span>PLAYS LOCALLY · 0 TOKENS USED</span>
     </footer>
   </main>
 `;
@@ -154,14 +144,11 @@ const overlayNetworkStatus = document.querySelector<HTMLParagraphElement>("#over
 const playButton = document.querySelector<HTMLButtonElement>("#play-button")!;
 const leaderboardButton = document.querySelector<HTMLButtonElement>("#leaderboard-button")!;
 const soundButton = document.querySelector<HTMLButtonElement>("#sound-button")!;
-const pipButton = document.querySelector<HTMLButtonElement>("#pip-button")!;
-const displayModeStatus = document.querySelector<HTMLParagraphElement>("#display-mode-status")!;
 const scoreElement = document.querySelector<HTMLElement>("#run-score")!;
 const bestElement = document.querySelector<HTMLElement>("#best-score")!;
 const leaderboardPanel = document.querySelector<HTMLElement>("#leaderboard-panel")!;
 const leaderboardRefresh = document.querySelector<HTMLButtonElement>("#leaderboard-refresh")!;
 const leaderboardStatus = document.querySelector<HTMLParagraphElement>("#leaderboard-status")!;
-const leaderboardStats = document.querySelector<HTMLElement>("#leaderboard-stats")!;
 const leaderboardPersonal = document.querySelector<HTMLElement>("#leaderboard-personal")!;
 const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!;
 const submissionStatus = document.querySelector<HTMLParagraphElement>("#submission-status")!;
@@ -176,14 +163,20 @@ const profileUnavailable = document.querySelector<HTMLElement>("#profile-unavail
 
 const HIGH_SCORE_KEY = "codex-run.highScore.v1";
 const SOUND_KEY = "codex-run.sound.v1";
+const GAME_OVER_MESSAGES = [
+  "The build passed locally. Of course it did.",
+  "One dependency update. Twelve new problems.",
+  "The cache remembered everything except the fix.",
+  "The bug was one line below the breakpoint.",
+  "The refactor was supposed to be small.",
+  "Works on your machine. Just your machine.",
+] as const;
 let game = createGameState();
 let lastFrame = performance.now();
 let highScore = readNumber(HIGH_SCORE_KEY, window.openai?.widgetState?.highScore ?? 0);
 let soundEnabled = readPreference(SOUND_KEY) !== "off";
 let audioContext: AudioContext | undefined;
 let runTime = 0;
-let displayModeStatusTimer: number | undefined;
-let pipUnavailable = false;
 const storage = resolveStorage();
 let leaderboardResultState = storage
   ? loadLeaderboardResultState(storage)
@@ -203,7 +196,7 @@ let leaderboardPhase: "loading" | "empty" | "populated" | "unavailable" = "loadi
 let submissionMessage = "";
 let activeRunId = 0;
 const runReporter = new CompletedRunReporter(submitCompletedRun, () => {
-  submissionMessage = "Shared score unavailable. Local play is unaffected.";
+  submissionMessage = "Leaderboard offline. This run was not posted.";
   renderLeaderboard();
 });
 
@@ -250,10 +243,10 @@ function refreshHud(): void {
   stage.setAttribute(
     "aria-label",
     game.status === "running"
-      ? `Codex Run running. Score ${game.score}. Press Space, W, or Up Arrow to jump.`
+      ? `Codex Run in progress. Score ${game.score}. Press Space, W, Up Arrow, or tap to jump.`
       : game.status === "gameover"
-        ? `Run over with score ${game.score}. Press Space or tap to restart.`
-        : "Game ready. Press Space, W, or Up Arrow to start and jump.",
+        ? `Run over. Score ${game.score}. Press Space or tap to run again.`
+        : "Ready to run. Press Space, W, Up Arrow, or tap to start.",
   );
 }
 
@@ -265,16 +258,16 @@ function updateOverlay(): void {
   }
   overlay.hidden = false;
   if (game.status === "gameover") {
-    overlayEyebrow.textContent = game.score >= highScore && game.score > 0 ? "NEW HIGH SCORE" : "CONTEXT LOST";
-    overlayTitle.innerHTML = "GAME OVER";
-    overlayCopy.textContent = `${formatScore(game.score)} tokens processed. Clear the context and try again.`;
-    playButton.innerHTML = `RETRY <span aria-hidden="true">↻</span>`;
+    overlayEyebrow.textContent = game.score >= highScore && game.score > 0 ? "NEW PERSONAL BEST" : "RUN OVER";
+    overlayTitle.innerHTML = `${formatScore(game.score)}<br>TOKENS`;
+    overlayCopy.textContent = GAME_OVER_MESSAGES[(Math.max(activeRunId, 1) - 1) % GAME_OVER_MESSAGES.length];
+    playButton.innerHTML = `RUN AGAIN <span aria-hidden="true">↻</span>`;
   } else {
-    overlayEyebrow.textContent = "MODEL READY";
-    overlayTitle.innerHTML = "PRESS SPACE<br>TO RUN";
-    overlayCopy.textContent = "Jump the rival AIs. Stay low beneath Grok. Dodge broken code and dev tools.";
+    overlayEyebrow.textContent = "READY TO RUN";
+    overlayTitle.innerHTML = "OUTRUN THE<br>AI PACK";
+    overlayCopy.textContent = "Jump Claude, Gemini, and Kimi. Duck under Grok. Dodge the code traps.";
     overlayNetworkStatus.hidden = true;
-    playButton.innerHTML = `START SESSION <span aria-hidden="true">↵</span>`;
+    playButton.innerHTML = `START RUN <span aria-hidden="true">↵</span>`;
   }
 }
 
@@ -288,7 +281,7 @@ function setLeaderboardOpen(open: boolean): void {
   leaderboardPanel.hidden = !open;
   leaderboardButton.dataset.active = open ? "true" : "false";
   leaderboardButton.setAttribute("aria-expanded", String(open));
-  leaderboardButton.setAttribute("aria-label", open ? "Close shared leaderboard" : "Open shared leaderboard");
+  leaderboardButton.setAttribute("aria-label", open ? "Close leaderboard" : "Open leaderboard");
   window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
 }
 
@@ -297,19 +290,18 @@ function renderLeaderboard(): void {
   leaderboardList.replaceChildren();
 
   if (leaderboardPhase === "loading") {
-    leaderboardStatus.textContent = "Loading shared scores…";
+    leaderboardStatus.textContent = "Loading leaderboard…";
   } else if (leaderboardPhase === "unavailable") {
     leaderboardStatus.textContent = leaderboardConfigured
-      ? "Shared scores are unavailable. Local play is unaffected."
-      : "Shared scores await the production Worker endpoint. Local play is ready.";
+      ? "Leaderboard unavailable. Your local best still works."
+      : "Leaderboard is not connected in this build. Your local best still works.";
   } else if (leaderboardPhase === "empty") {
-    leaderboardStatus.textContent = "No named scores yet. Be the first.";
+    leaderboardStatus.textContent = "No ranked scores yet. Claim the first spot.";
   } else {
-    leaderboardStatus.textContent = "All-time top 20 · earliest score wins a tie";
+    leaderboardStatus.textContent = "Top 20 all time";
   }
 
   if (leaderboardData) {
-    leaderboardStats.textContent = `${formatCount(leaderboardData.stats.completedRuns)} completed runs · ${formatCount(leaderboardData.stats.approximatePlayers)} players`;
     for (const entry of leaderboardData.entries) {
       const item = document.createElement("li");
       const rank = document.createElement("span");
@@ -318,22 +310,20 @@ function renderLeaderboard(): void {
       rank.textContent = `#${entry.rank}`;
       name.textContent = entry.nickname;
       score.textContent = formatScore(entry.score);
-      item.title = `Achieved ${new Date(entry.achievedAt).toLocaleString()}`;
+      item.title = `Set ${new Date(entry.achievedAt).toLocaleString()}`;
       item.append(rank, name, score);
       leaderboardList.append(item);
     }
-  } else {
-    leaderboardStats.textContent = "— completed runs";
   }
 
   const best = leaderboardResultState.bestScore;
   const rank = leaderboardResultState.rank;
   leaderboardPersonal.textContent =
     best === null
-      ? "No shared result yet"
+      ? "No leaderboard score yet"
       : rank === null
-        ? `Your shared best ${formatScore(best)} · add a name to rank`
-        : `Your shared best ${formatScore(best)} · last known rank #${rank}`;
+        ? `Your best ${formatScore(best)} · add a name to enter the rankings`
+        : `Your best ${formatScore(best)} · rank #${rank} when last checked`;
 
   submissionStatus.hidden = submissionMessage.length === 0;
   submissionStatus.textContent = submissionMessage;
@@ -346,13 +336,9 @@ function renderLeaderboard(): void {
     nicknameInput.disabled = profileLocking;
     nicknameSave.disabled = profileLocking;
     nicknameStatus.textContent = profileMessage ||
-      "Once locked, this name cannot be renamed or removed from this Codex installation. You can keep playing unnamed.";
+      "Choose carefully: this name is permanent on this Codex installation. Playing unnamed is fine.";
   }
   window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
-}
-
-function formatCount(value: number): string {
-  return new Intl.NumberFormat().format(value);
 }
 
 async function refreshLeaderboard(fresh = false): Promise<void> {
@@ -377,15 +363,15 @@ async function submitCompletedRun(run: RunReport, runId: number): Promise<void> 
   await profileInitializationPromise;
   if (!leaderboardClient || !leaderboardProfile) {
     const reason = leaderboardClient
-      ? "Permanent profile unavailable; score stayed local."
-      : "Shared score unavailable in this build.";
+      ? "Could not load your leaderboard profile. This run was not posted."
+      : "Leaderboard is not connected in this build. This run was not posted.";
     submissionMessage = reason;
     setOverlaySubmissionStatus(reason, runId);
     renderLeaderboard();
     return;
   }
 
-  submissionMessage = "Submitting this run in the background…";
+  submissionMessage = "Saving score…";
   setOverlaySubmissionStatus(submissionMessage, runId);
   renderLeaderboard();
   try {
@@ -399,15 +385,17 @@ async function submitCompletedRun(run: RunReport, runId: number): Promise<void> 
     applyRunResponse(result);
     const profileConsistent = await reconcileAuthoritativeWorkerName(result);
     submissionMessage = !profileConsistent && result.nickname
-      ? `Run counted. The public board already has this player ID locked as ${result.nickname}; the local permanent profile could not be synchronized.`
+      ? `Score saved as ${result.nickname}. Your local profile name could not be updated.`
       : result.rank === null
-        ? "Run counted. Add a display name to join the public board."
-        : `Run counted · rank #${result.rank}${result.personalBest ? " · new shared best" : ""}`;
+        ? "Score saved. Add a display name to enter the leaderboard."
+        : result.personalBest
+          ? `New personal best · rank #${result.rank}`
+          : `Score saved · rank #${result.rank}`;
     setOverlaySubmissionStatus(submissionMessage, runId);
     renderLeaderboard();
     if (result.personalBest) await refreshLeaderboard(true);
   } catch {
-    submissionMessage = "Shared score unavailable. Local play is unaffected.";
+    submissionMessage = "Leaderboard offline. This run was not posted.";
     setOverlaySubmissionStatus(submissionMessage, runId);
     renderLeaderboard();
   }
@@ -507,20 +495,20 @@ leaderboardRefresh.addEventListener("click", () => {
 nicknameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!profileApp || profilePhase !== "ready" || !leaderboardProfile) {
-    profileMessage = "Permanent profile storage is unavailable; gameplay still works.";
+    profileMessage = "Leaderboard profile unavailable. You can keep playing.";
     renderLeaderboard();
     return;
   }
 
   const nickname = normalizeNickname(nicknameInput.value);
   if (!nickname) {
-    profileMessage = `Choose a non-empty name using ${MAX_NICKNAME_LENGTH} characters or fewer without control characters.`;
+    profileMessage = `Enter a name with 1–${MAX_NICKNAME_LENGTH} characters.`;
     renderLeaderboard();
     return;
   }
 
   profileLocking = true;
-  profileMessage = "Locking this permanent display name…";
+  profileMessage = "Saving your display name…";
   renderLeaderboard();
   try {
     const result = await profileApp.callServerTool({
@@ -532,10 +520,10 @@ nicknameForm.addEventListener("submit", async (event) => {
     leaderboardProfile = profile;
     profileLocking = false;
     profileMessage = "";
-    submissionMessage = `Display name ${profile.nickname ?? ""} is locked permanently for this Codex installation.`;
+    submissionMessage = `${profile.nickname ?? "Your name"} is now your permanent leaderboard name.`;
   } catch {
     profileLocking = false;
-    profileMessage = "Codex could not lock the name. Nothing changed, and local play is unaffected.";
+    profileMessage = "Could not save that name. Nothing changed, and you can keep playing.";
   }
   renderLeaderboard();
 });
@@ -562,84 +550,6 @@ soundButton.addEventListener("click", () => {
   if (waves) waves.style.display = soundEnabled ? "" : "none";
   if (soundEnabled) tone(420, 0.08, 0.04, 90);
 });
-
-function showDisplayModeStatus(message: string, isError = false): void {
-  if (displayModeStatusTimer !== undefined) window.clearTimeout(displayModeStatusTimer);
-  displayModeStatus.textContent = message;
-  displayModeStatus.dataset.tone = isError ? "error" : "success";
-  displayModeStatus.hidden = false;
-  displayModeStatusTimer = window.setTimeout(() => {
-    displayModeStatus.hidden = true;
-    displayModeStatusTimer = undefined;
-  }, isError ? 7_000 : 3_000);
-}
-
-function waitForDisplayMode(target: DisplayMode, timeoutMs = 1_500): Promise<DisplayMode | undefined> {
-  if (window.openai?.displayMode === target) return Promise.resolve(target);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (mode: DisplayMode | undefined) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("openai:set_globals", onGlobals as EventListener);
-      window.clearInterval(pollTimer);
-      window.clearTimeout(timeoutTimer);
-      resolve(mode);
-    };
-    const check = () => {
-      const mode = window.openai?.displayMode;
-      if (mode === target) finish(mode);
-    };
-    const onGlobals = () => check();
-    const pollTimer = window.setInterval(check, 50);
-    const timeoutTimer = window.setTimeout(() => finish(window.openai?.displayMode), timeoutMs);
-    window.addEventListener("openai:set_globals", onGlobals as EventListener, { passive: true });
-  });
-}
-
-function refreshDisplayModeControl(): void {
-  const supported = typeof window.openai?.requestDisplayMode === "function";
-  pipButton.hidden = !supported;
-  const inPip = window.openai?.displayMode === "pip";
-  const label = inPip ? "Return game inline" : "Open game in picture in picture";
-  pipButton.setAttribute("aria-label", label);
-  pipButton.setAttribute("title", pipUnavailable ? "Picture in picture is unavailable in this Codex build" : label);
-  pipButton.disabled = pipUnavailable && !inPip;
-  pipButton.dataset.active = inPip ? "true" : "false";
-}
-
-pipButton.addEventListener("click", async () => {
-  const target: DisplayMode = window.openai?.displayMode === "pip" ? "inline" : "pip";
-  pipButton.disabled = true;
-  showDisplayModeStatus(target === "pip" ? "Opening picture in picture…" : "Returning the game inline…");
-
-  const result = await requestHostDisplayMode(window.openai, target, waitForDisplayMode);
-  if (result.status === "entered") {
-    pipUnavailable = false;
-    showDisplayModeStatus(target === "pip" ? "Game opened in picture in picture." : "Game returned inline.");
-  } else {
-    if (target === "pip") pipUnavailable = true;
-    const detail = result.status === "rejected" ? ` (${result.error})` : "";
-    console.warn(`Codex Run could not enter ${target} mode${detail}`);
-    showDisplayModeStatus(
-      target === "pip"
-        ? "Picture in picture is unavailable in this Codex build. The game will stay inline."
-        : "The host could not return the game inline.",
-      true,
-    );
-  }
-  refreshDisplayModeControl();
-});
-
-function detectHostFeatures(): void {
-  refreshDisplayModeControl();
-}
-
-window.addEventListener("openai:set_globals", detectHostFeatures as EventListener, { passive: true });
-detectHostFeatures();
-setTimeout(detectHostFeatures, 400);
-setTimeout(detectHostFeatures, 1_500);
 
 async function initializePermanentProfile(): Promise<void> {
   if (window.parent === window) {
