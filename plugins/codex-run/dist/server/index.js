@@ -31696,19 +31696,132 @@ var EMPTY_COMPLETION_RESULT = {
 };
 
 // src/server/auto-start-preference.ts
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+
+// src/leaderboard/identity.ts
+var MAX_NICKNAME_LENGTH = 20;
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var UNSAFE_NICKNAME_PATTERN = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff]/u;
+function normalizePlayerId(value) {
+  return typeof value === "string" && UUID_PATTERN.test(value) ? value.toLowerCase() : void 0;
+}
+function normalizeNickname(value) {
+  if (value === null) return null;
+  const nickname = value.normalize("NFC").trim();
+  if (nickname.length === 0) return null;
+  if ([...nickname].length > MAX_NICKNAME_LENGTH) return void 0;
+  if (UNSAFE_NICKNAME_PATTERN.test(nickname)) return void 0;
+  return nickname;
+}
+
+// src/server/auto-start-preference.ts
+var PREFERENCES_VERSION = 1;
+var LEADERBOARD_PROFILE_VERSION = 1;
+var InvalidDisplayNameError = class extends Error {
+  constructor() {
+    super("Display name must be non-empty and follow the Codex Run nickname rules.");
+    this.name = "InvalidDisplayNameError";
+  }
+};
 function resolveAutoStartPreferencePath(env = process.env, userHome = homedir()) {
   const codexHome = env.CODEX_HOME?.trim() || join(userHome, ".codex");
   return join(codexHome, "codex-run", "preferences.json");
 }
 function writeAutoStartPreference(autoStartEnabled, path = resolveAutoStartPreferencePath()) {
-  const preference = { autoStartEnabled };
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(preference, null, 2)}
-`, "utf8");
-  return preference;
+  writePreferencesPatch({ autoStartEnabled }, path);
+  return { autoStartEnabled };
+}
+function initializeLeaderboardProfile(legacy = {}, path = resolveAutoStartPreferencePath(), createUuid = randomUUID) {
+  const preferences = readPreferencesRecord(path);
+  if (Object.hasOwn(preferences, "leaderboardProfile")) {
+    const existing = parseLeaderboardProfile(preferences.leaderboardProfile);
+    if (!existing) {
+      throw new Error("The stored Codex Run leaderboard profile is invalid or unsupported.");
+    }
+    return { profile: existing, adoptedLegacyIdentity: false };
+  }
+  const legacyPlayerId = normalizePlayerId(legacy.legacyPlayerId);
+  const playerId = legacyPlayerId ?? normalizePlayerId(createUuid());
+  if (!playerId) throw new Error("Codex Run could not create a valid installation player ID.");
+  const normalizedLegacyNickname = legacyPlayerId ? normalizeLegacyNickname(legacy.legacyNickname) : null;
+  const profile = {
+    version: LEADERBOARD_PROFILE_VERSION,
+    playerId,
+    nickname: normalizedLegacyNickname
+  };
+  writePreferencesPatch({ leaderboardProfile: profile }, path);
+  return { profile, adoptedLegacyIdentity: legacyPlayerId !== void 0 };
+}
+function lockLeaderboardDisplayName(displayName, path = resolveAutoStartPreferencePath(), createUuid = randomUUID) {
+  const profile = initializeLeaderboardProfile({}, path, createUuid).profile;
+  if (profile.nickname !== null) return { profile, status: "already_locked" };
+  const nickname = normalizeNickname(displayName);
+  if (!nickname) throw new InvalidDisplayNameError();
+  const lockedProfile = { ...profile, nickname };
+  writePreferencesPatch({ leaderboardProfile: lockedProfile }, path);
+  return { profile: lockedProfile, status: "locked" };
+}
+function normalizeLegacyNickname(value) {
+  if (typeof value !== "string") return null;
+  const nickname = normalizeNickname(value);
+  return nickname ?? null;
+}
+function parseLeaderboardProfile(value) {
+  if (!isRecord(value) || value.version !== LEADERBOARD_PROFILE_VERSION) return void 0;
+  const playerId = normalizePlayerId(value.playerId);
+  if (!playerId) return void 0;
+  if (value.nickname !== null && typeof value.nickname !== "string") return void 0;
+  const nickname = normalizeNickname(value.nickname);
+  if (nickname === void 0) return void 0;
+  return { version: LEADERBOARD_PROFILE_VERSION, playerId, nickname };
+}
+function readPreferencesRecord(path) {
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8"));
+    return isRecord(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+function writePreferencesPatch(patch, path) {
+  const preference = {
+    ...readPreferencesRecord(path),
+    version: PREFERENCES_VERSION,
+    ...patch
+  };
+  const directory = dirname(path);
+  const temporaryPath = join(
+    directory,
+    `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`
+  );
+  mkdirSync(directory, { recursive: true });
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(preference, null, 2)}
+`, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 384
+    });
+    renameSync(temporaryPath, path);
+  } catch (error51) {
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+    }
+    throw error51;
+  }
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/leaderboard/config.ts
@@ -31721,6 +31834,10 @@ function isLeaderboardOriginConfigured(origin = LEADERBOARD_ORIGIN) {
     return false;
   }
 }
+
+// src/leaderboard/profile-client.ts
+var INITIALIZE_PROFILE_TOOL_NAME = "initialize_codex_run_leaderboard_profile";
+var LOCK_DISPLAY_NAME_TOOL_NAME = "lock_codex_run_display_name";
 
 // src/server/create-game-server.ts
 var GAME_RESOURCE_URI = "ui://codex-run/game-v1.html";
@@ -31796,6 +31913,102 @@ function createCodexRunServer(widgetHtml = loadBuiltGameHtml(), options = {}) {
         }
       ]
     })
+  );
+  const profileSchema = {
+    version: external_exports.literal(1),
+    playerId: external_exports.string().uuid(),
+    nickname: external_exports.string().nullable()
+  };
+  server2.registerTool(
+    INITIALIZE_PROFILE_TOOL_NAME,
+    {
+      title: "Initialize Codex Run leaderboard profile",
+      description: "Read or create the permanent installation-scoped leaderboard profile. On first use only, valid legacy iframe identity data may be adopted. Existing profile data always wins.",
+      inputSchema: {
+        legacyPlayerId: external_exports.string().optional(),
+        legacyNickname: external_exports.string().nullable().optional()
+      },
+      outputSchema: {
+        status: external_exports.literal("ready"),
+        adoptedLegacyIdentity: external_exports.boolean(),
+        profile: external_exports.object(profileSchema)
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      _meta: {
+        ui: { visibility: ["app"] }
+      }
+    },
+    async ({ legacyPlayerId, legacyNickname }) => {
+      const result = initializeLeaderboardProfile(
+        { legacyPlayerId, legacyNickname },
+        options.preferencePath ?? resolveAutoStartPreferencePath()
+      );
+      return {
+        structuredContent: { status: "ready", ...result },
+        content: [
+          {
+            type: "text",
+            text: result.profile.nickname ? "Codex Run loaded the installation's locked leaderboard profile." : "Codex Run loaded the installation's unnamed leaderboard profile."
+          }
+        ]
+      };
+    }
+  );
+  server2.registerTool(
+    LOCK_DISPLAY_NAME_TOOL_NAME,
+    {
+      title: "Lock Codex Run display name",
+      description: "Permanently lock the first valid display name for this local Codex installation. Later calls return the existing name without changing it.",
+      inputSchema: {
+        displayName: external_exports.string()
+      },
+      outputSchema: {
+        status: external_exports.enum(["locked", "already_locked"]),
+        profile: external_exports.object(profileSchema)
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      _meta: {
+        ui: { visibility: ["app"] }
+      }
+    },
+    async ({ displayName }) => {
+      try {
+        const result = lockLeaderboardDisplayName(
+          displayName,
+          options.preferencePath ?? resolveAutoStartPreferencePath()
+        );
+        return {
+          structuredContent: result,
+          content: [
+            {
+              type: "text",
+              text: result.status === "locked" ? "Codex Run permanently locked the installation display name." : "Codex Run kept the installation's existing locked display name."
+            }
+          ]
+        };
+      } catch (error51) {
+        if (!(error51 instanceof InvalidDisplayNameError)) throw error51;
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: error51.message
+            }
+          ]
+        };
+      }
+    }
   );
   server2.registerTool(
     SET_AUTO_START_TOOL_NAME,

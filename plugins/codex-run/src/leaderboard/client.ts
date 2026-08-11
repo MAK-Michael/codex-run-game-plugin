@@ -26,6 +26,8 @@ export type RunResponse = {
   personalBest: boolean;
   bestScore: number;
   rank: number | null;
+  nickname: string | null;
+  nameLocked: boolean;
   completedRuns: number;
 };
 
@@ -97,6 +99,8 @@ function isRunResponse(value: unknown): value is RunResponse {
     typeof value.personalBest === "boolean" &&
     isNonNegativeInteger(value.bestScore) &&
     (value.rank === null || (Number.isInteger(value.rank) && (value.rank as number) > 0)) &&
+    (value.nickname === null || typeof value.nickname === "string") &&
+    value.nameLocked === (value.nickname !== null) &&
     isNonNegativeInteger(value.completedRuns)
   );
 }

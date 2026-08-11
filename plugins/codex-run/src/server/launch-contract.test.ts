@@ -8,6 +8,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   GAME_RESOURCE_URI,
+  INITIALIZE_PROFILE_TOOL_NAME,
+  LOCK_DISPLAY_NAME_TOOL_NAME,
   SET_AUTO_START_TOOL_NAME,
   START_TOOL_NAME,
   createCodexRunServer,
@@ -94,8 +96,55 @@ describe("MCP launch contract", () => {
       autoStartEnabled: false,
       status: "saved",
     });
-    assert.deepEqual(JSON.parse(readFileSync(preferencePath, "utf8")), {
-      autoStartEnabled: false,
+    assert.equal(JSON.parse(readFileSync(preferencePath, "utf8")).autoStartEnabled, false);
+  });
+
+  it("initializes one app-only installation profile and locks its first valid name", async () => {
+    const { tools } = await client.listTools();
+    const initializeTool = tools.find((tool) => tool.name === INITIALIZE_PROFILE_TOOL_NAME);
+    const lockTool = tools.find((tool) => tool.name === LOCK_DISPLAY_NAME_TOOL_NAME);
+    assert.deepEqual(initializeTool?._meta, { ui: { visibility: ["app"] } });
+    assert.deepEqual(lockTool?._meta, { ui: { visibility: ["app"] } });
+    assert.equal(initializeTool?.annotations?.readOnlyHint, false);
+    assert.equal(initializeTool?.annotations?.idempotentHint, true);
+
+    const initialized = await client.callTool({
+      name: INITIALIZE_PROFILE_TOOL_NAME,
+      arguments: {
+        legacyPlayerId: "8C0888D1-1C63-49CD-88D8-D2AAF93848E8",
+        legacyNickname: null,
+      },
+    });
+    assert.deepEqual(initialized.structuredContent, {
+      status: "ready",
+      adoptedLegacyIdentity: true,
+      profile: {
+        version: 1,
+        playerId: "8c0888d1-1c63-49cd-88d8-d2aaf93848e8",
+        nickname: null,
+      },
+    });
+
+    const locked = await client.callTool({
+      name: LOCK_DISPLAY_NAME_TOOL_NAME,
+      arguments: { displayName: "  MAK  " },
+    });
+    assert.deepEqual(locked.structuredContent, {
+      status: "locked",
+      profile: {
+        version: 1,
+        playerId: "8c0888d1-1c63-49cd-88D8-D2AAF93848E8".toLowerCase(),
+        nickname: "MAK",
+      },
+    });
+
+    const renameAttempt = await client.callTool({
+      name: LOCK_DISPLAY_NAME_TOOL_NAME,
+      arguments: { displayName: "RENAME" },
+    });
+    assert.deepEqual(renameAttempt.structuredContent, {
+      status: "already_locked",
+      profile: (locked.structuredContent as { profile: unknown }).profile,
     });
   });
 });

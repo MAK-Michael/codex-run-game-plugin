@@ -5,7 +5,7 @@ This directory contains the open-source Cloudflare Worker and D1 schema for the 
 - `GET /v1/leaderboard`
 - `POST /v1/runs`
 
-The API accepts anonymous completed-run submissions, keeps every valid run for approximate counts, and publishes one best score per named player. It is an obvious-abuse filter, not proof that a human played.
+The API accepts anonymous completed-run submissions, keeps every valid run for approximate counts, and publishes one best score per named player. For each player UUID, the first non-null display name wins permanently; later submissions cannot rename or clear it. Names are not unique across different player UUIDs. Accepted-run responses return the authoritative stored name and lock state so clients do not imply that a rejected rename succeeded. This is an obvious-abuse filter, not proof of one identity per human.
 
 ## Local verification
 

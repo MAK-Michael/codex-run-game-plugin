@@ -392,11 +392,24 @@ canvas {
 }
 
 .leaderboard-status,
-.nickname-form p {
+.nickname-form p,
+.profile-state p {
   margin: 0;
   color: #777a7e;
   font-size: 9px;
   line-height: 1.45;
+}
+
+.submission-status[hidden],
+.nickname-form[hidden],
+.profile-state[hidden] {
+  display: none;
+}
+
+.submission-status {
+  padding: 7px 9px;
+  border-left: 2px solid var(--green);
+  background: var(--paper);
 }
 
 .leaderboard-summary {
@@ -457,6 +470,34 @@ canvas {
   display: grid;
   gap: 7px;
   padding-top: 3px;
+}
+
+.profile-state {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.profile-state > span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.profile-state strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-locked {
+  border-left: 3px solid var(--green);
 }
 
 .nickname-form label {

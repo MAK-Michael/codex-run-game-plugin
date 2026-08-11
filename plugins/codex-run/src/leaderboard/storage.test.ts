@@ -5,9 +5,9 @@ import {
   NICKNAME_KEY,
   PLAYER_ID_KEY,
   RANK_KEY,
-  loadLeaderboardLocalState,
+  loadLeaderboardResultState,
+  loadLegacyLeaderboardProfile,
   saveLeaderboardResult,
-  saveNickname,
 } from "./storage.js";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem"> {
@@ -26,38 +26,39 @@ class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem
 const PLAYER_ID = "8c0888d1-1c63-49cd-88d8-d2aaf93848e8";
 
 describe("leaderboard local state", () => {
-  it("creates and then reuses one anonymous player UUID", () => {
+  it("reads a valid legacy identity without creating or changing one", () => {
     const storage = new MemoryStorage();
-    assert.equal(loadLeaderboardLocalState(storage, () => PLAYER_ID)?.playerId, PLAYER_ID);
-    assert.equal(storage.getItem(PLAYER_ID_KEY), PLAYER_ID);
-    assert.equal(loadLeaderboardLocalState(storage, () => "unreachable")?.playerId, PLAYER_ID);
-  });
-
-  it("persists optional nickname, rank, and server best", () => {
-    const storage = new MemoryStorage();
-    loadLeaderboardLocalState(storage, () => PLAYER_ID);
-    assert.equal(saveNickname(storage, "  MAK  "), "MAK");
-    saveLeaderboardResult(storage, { rank: 4, bestScore: 1842 });
-
-    assert.equal(storage.getItem(NICKNAME_KEY), "MAK");
-    assert.equal(storage.getItem(RANK_KEY), "4");
-    assert.equal(storage.getItem(BEST_SCORE_KEY), "1842");
-    assert.deepEqual(loadLeaderboardLocalState(storage), {
+    assert.equal(loadLegacyLeaderboardProfile(storage), undefined);
+    storage.setItem(PLAYER_ID_KEY, PLAYER_ID.toUpperCase());
+    storage.setItem(NICKNAME_KEY, "  MAK  ");
+    assert.deepEqual(loadLegacyLeaderboardProfile(storage), {
       playerId: PLAYER_ID,
       nickname: "MAK",
+    });
+  });
+
+  it("persists only ephemeral rank and server best in iframe storage", () => {
+    const storage = new MemoryStorage();
+    saveLeaderboardResult(storage, { rank: 4, bestScore: 1842 });
+
+    assert.equal(storage.getItem(RANK_KEY), "4");
+    assert.equal(storage.getItem(BEST_SCORE_KEY), "1842");
+    assert.deepEqual(loadLeaderboardResultState(storage), {
       rank: 4,
       bestScore: 1842,
     });
   });
 
-  it("leaves participation unavailable when storage fails", () => {
+  it("keeps result caching optional when iframe storage fails", () => {
     const storage = {
-      getItem: () => null,
+      getItem: () => {
+        throw new Error("blocked");
+      },
       setItem: () => {
         throw new Error("blocked");
       },
       removeItem: () => undefined,
     };
-    assert.equal(loadLeaderboardLocalState(storage, () => PLAYER_ID), undefined);
+    assert.deepEqual(loadLeaderboardResultState(storage), { rank: null, bestScore: null });
   });
 });

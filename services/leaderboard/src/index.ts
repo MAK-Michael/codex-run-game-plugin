@@ -112,7 +112,7 @@ async function postRun(request: Request, db: D1Database): Promise<Response> {
            player_id, nickname, best_score, best_achieved_at, total_runs, created_at, last_seen_at
          ) VALUES (?, ?, ?, ?, 1, ?, ?)
          ON CONFLICT(player_id) DO UPDATE SET
-           nickname = excluded.nickname,
+           nickname = COALESCE(players.nickname, excluded.nickname),
            best_score = CASE
              WHEN excluded.best_score > players.best_score THEN excluded.best_score
              ELSE players.best_score
@@ -187,6 +187,8 @@ async function postRun(request: Request, db: D1Database): Promise<Response> {
       personalBest,
       bestScore: player.best_score,
       rank,
+      nickname: player.nickname,
+      nameLocked: player.nickname !== null,
       completedRuns,
     },
     201,

@@ -16,7 +16,7 @@ Guide the Codex knot past AI rivals and broken developer tools. Gameplay runs on
 - Stay low when a Grok mark is above the track.
 - Select the speaker control to turn sound on or off.
 - Select the pop-out control to request picture-in-picture mode. If Codex does not accept the request, the game stays in the chat.
-- Select the chart control to view or refresh the shared all-time top 20. You can play immediately and add an optional display name later.
+- Select the chart control to view or refresh the shared all-time top 20. You can play immediately without a name. If you later join the public board, the first valid display name you lock is permanent for this local Codex installation. Different players may use the same name.
 
 ## Automatic start
 
@@ -116,24 +116,31 @@ Codex Run does not need an account, login, email address, or API key. Local game
 
 When the shared leaderboard is enabled, each valid completed run sends these fields to the public leaderboard service in the background:
 
-- Anonymous player UUID generated and stored on your computer
-- Optional display name
+- Installation-scoped player UUID generated and stored on your computer
+- Permanent display name, after you choose and lock one
 - Score
 - Simulated run duration
 - Game rules version
 
-Runs without a display name count toward approximate play statistics but do not appear publicly. Failed or offline submissions are not queued, so completed-run and player counts are approximate. Starting or retrying a run never waits for the network.
+Runs without a display name count toward approximate play statistics but do not appear publicly. The leaderboard keeps the first non-empty name submitted for a player UUID and ignores later attempts to rename or clear it. Display names are not unique. Failed or offline submissions are not queued, so completed-run and player counts are approximate. Starting or retrying a run never waits for the network, and profile or leaderboard failures never block local gameplay.
 
 The leaderboard application database stores anonymous players and completed runs. It does not intentionally store email addresses or IP addresses. Cloudflare still processes normal request metadata as the infrastructure provider.
 
-The plugin stores these settings on your computer:
+The MCP server stores the versioned leaderboard profile and automatic-start setting outside the plugin installation directory at `$CODEX_HOME/codex-run/preferences.json` (by default `~/.codex/codex-run/preferences.json`):
+
+- Setting for automatic start
+- Installation-scoped leaderboard player UUID
+- Locked leaderboard display name, or `null` until you choose one
+
+Every preference update preserves the other fields in this file. Because it lives under `CODEX_HOME`, the identity survives plugin reinstalls and normal Codex updates or reinstalls when that directory is preserved. There is no account recovery or cross-device identity claim: a new machine, a different OS user, a different `CODEX_HOME`, or deletion of `~/.codex` can create a new identity and allow a new name choice.
+
+The embedded game may also cache these non-authoritative settings in its iframe storage:
 
 - High score
 - Sound setting
-- Setting for automatic start
-- Anonymous leaderboard player UUID
-- Optional leaderboard display name
 - Last known shared rank and best score
+
+During the first upgrade only, if no server profile exists, the MCP server makes a best-effort attempt to adopt a valid legacy iframe player UUID and display name. After the server profile exists, iframe storage and later run submissions cannot replace it.
 
 ## Project layout
 
@@ -168,7 +175,7 @@ The tests check these functions:
 - Sprite colors and player frames
 - Picture-in-picture confirmation
 - Setting for automatic start
-- Anonymous leaderboard identity and optional-name storage
+- Installation-profile migration, merge-safe preference writes, and first-name locking
 - One background submission per completed run
 - Worker payload, rate, score-duration, ranking, privacy, and CORS behavior
 

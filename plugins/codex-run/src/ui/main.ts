@@ -1,4 +1,5 @@
 import "./style.css";
+import { App } from "@modelcontextprotocol/ext-apps";
 import {
   GROUND_Y,
   PLAYER_HEIGHT,
@@ -32,10 +33,19 @@ import {
 import { CompletedRunReporter, type RunReport } from "../leaderboard/run-reporter.js";
 import {
   MAX_NICKNAME_LENGTH,
-  loadLeaderboardLocalState,
+  normalizeNickname,
+} from "../leaderboard/identity.js";
+import {
+  INITIALIZE_PROFILE_TOOL_NAME,
+  LOCK_DISPLAY_NAME_TOOL_NAME,
+  parseInitializedProfile,
+  parseLockedProfile,
+  type LeaderboardProfile,
+} from "../leaderboard/profile-client.js";
+import {
+  loadLeaderboardResultState,
+  loadLegacyLeaderboardProfile,
   saveLeaderboardResult,
-  saveNickname,
-  type LeaderboardLocalState,
 } from "../leaderboard/storage.js";
 
 type OpenAiHost = DisplayModeHost & {
@@ -103,14 +113,28 @@ app.innerHTML = `
         <span id="leaderboard-personal">No shared result yet</span>
       </div>
       <ol class="leaderboard-list" id="leaderboard-list" aria-label="All-time top scores"></ol>
-      <form class="nickname-form" id="nickname-form">
-        <label for="nickname-input">DISPLAY NAME <span>OPTIONAL · DUPLICATES ALLOWED</span></label>
+      <p class="leaderboard-status submission-status" id="submission-status" role="status" aria-live="polite" hidden></p>
+      <div class="profile-state" id="profile-loading">
+        <span>INSTALLATION PROFILE</span>
+        <p>Loading permanent leaderboard identity… Local play is ready.</p>
+      </div>
+      <form class="nickname-form" id="nickname-form" hidden>
+        <label for="nickname-input">CHOOSE DISPLAY NAME <span>ONE TIME · DUPLICATES ALLOWED</span></label>
         <div class="nickname-row">
-          <input id="nickname-input" name="nickname" type="text" maxlength="${MAX_NICKNAME_LENGTH}" autocomplete="off" placeholder="Join after you play" aria-describedby="nickname-status">
-          <button class="secondary-button" id="nickname-save" type="submit">SAVE</button>
+          <input id="nickname-input" name="nickname" type="text" maxlength="${MAX_NICKNAME_LENGTH}" autocomplete="off" placeholder="Permanent public name" aria-describedby="nickname-status">
+          <button class="secondary-button" id="nickname-save" type="submit">LOCK NAME</button>
         </div>
-        <p id="nickname-status">Runs without a name still count, but stay off the public board.</p>
+        <p id="nickname-status">Once locked, this name cannot be renamed or removed from this Codex installation. You can keep playing unnamed.</p>
       </form>
+      <div class="profile-state profile-locked" id="profile-locked" hidden>
+        <span>DISPLAY NAME · LOCKED</span>
+        <strong id="profile-display-name"></strong>
+        <p>This permanent installation name cannot be renamed or removed.</p>
+      </div>
+      <div class="profile-state" id="profile-unavailable" hidden>
+        <span>PERMANENT PROFILE UNAVAILABLE</span>
+        <p>Codex cannot reach installation profile storage. Local gameplay still works.</p>
+      </div>
     </section>
     <footer class="footer">
       <span><i class="live-dot"></i><b>SPACE / ↑ / W / TAP</b> TO JUMP</span>
@@ -140,10 +164,15 @@ const leaderboardStatus = document.querySelector<HTMLParagraphElement>("#leaderb
 const leaderboardStats = document.querySelector<HTMLElement>("#leaderboard-stats")!;
 const leaderboardPersonal = document.querySelector<HTMLElement>("#leaderboard-personal")!;
 const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!;
+const submissionStatus = document.querySelector<HTMLParagraphElement>("#submission-status")!;
+const profileLoading = document.querySelector<HTMLElement>("#profile-loading")!;
 const nicknameForm = document.querySelector<HTMLFormElement>("#nickname-form")!;
 const nicknameInput = document.querySelector<HTMLInputElement>("#nickname-input")!;
 const nicknameSave = document.querySelector<HTMLButtonElement>("#nickname-save")!;
 const nicknameStatus = document.querySelector<HTMLParagraphElement>("#nickname-status")!;
+const profileLocked = document.querySelector<HTMLElement>("#profile-locked")!;
+const profileDisplayName = document.querySelector<HTMLElement>("#profile-display-name")!;
+const profileUnavailable = document.querySelector<HTMLElement>("#profile-unavailable")!;
 
 const HIGH_SCORE_KEY = "codex-run.highScore.v1";
 const SOUND_KEY = "codex-run.sound.v1";
@@ -156,7 +185,15 @@ let runTime = 0;
 let displayModeStatusTimer: number | undefined;
 let pipUnavailable = false;
 const storage = resolveStorage();
-let leaderboardLocalState = storage ? loadLeaderboardLocalState(storage) : undefined;
+let leaderboardResultState = storage
+  ? loadLeaderboardResultState(storage)
+  : { rank: null, bestScore: null };
+let leaderboardProfile: LeaderboardProfile | undefined;
+let profileApp: App | undefined;
+let profilePhase: "loading" | "ready" | "unavailable" = "loading";
+let profileMessage = "";
+let profileLocking = false;
+let profileInitializationPromise: Promise<void>;
 const leaderboardConfigured = isLeaderboardOriginConfigured();
 const leaderboardClient = leaderboardConfigured
   ? new LeaderboardClient(LEADERBOARD_ORIGIN)
@@ -289,24 +326,28 @@ function renderLeaderboard(): void {
     leaderboardStats.textContent = "— completed runs";
   }
 
-  if (!leaderboardLocalState) {
-    leaderboardPersonal.textContent = "Local storage unavailable · participation off";
-    nicknameInput.disabled = true;
-    nicknameSave.disabled = true;
-  } else {
-    nicknameInput.disabled = false;
-    nicknameSave.disabled = false;
-    const best = leaderboardLocalState.bestScore;
-    const rank = leaderboardLocalState.rank;
-    leaderboardPersonal.textContent =
-      best === null
-        ? "No shared result yet"
-        : rank === null
-          ? `Your shared best ${formatScore(best)} · add a name to rank`
-          : `Your shared best ${formatScore(best)} · last known rank #${rank}`;
-  }
+  const best = leaderboardResultState.bestScore;
+  const rank = leaderboardResultState.rank;
+  leaderboardPersonal.textContent =
+    best === null
+      ? "No shared result yet"
+      : rank === null
+        ? `Your shared best ${formatScore(best)} · add a name to rank`
+        : `Your shared best ${formatScore(best)} · last known rank #${rank}`;
 
-  if (submissionMessage) nicknameStatus.textContent = submissionMessage;
+  submissionStatus.hidden = submissionMessage.length === 0;
+  submissionStatus.textContent = submissionMessage;
+  profileLoading.hidden = profilePhase !== "loading";
+  nicknameForm.hidden = profilePhase !== "ready" || leaderboardProfile?.nickname !== null;
+  profileLocked.hidden = profilePhase !== "ready" || !leaderboardProfile?.nickname;
+  profileUnavailable.hidden = profilePhase !== "unavailable";
+  if (leaderboardProfile?.nickname) profileDisplayName.textContent = leaderboardProfile.nickname;
+  if (!nicknameForm.hidden) {
+    nicknameInput.disabled = profileLocking;
+    nicknameSave.disabled = profileLocking;
+    nicknameStatus.textContent = profileMessage ||
+      "Once locked, this name cannot be renamed or removed from this Codex installation. You can keep playing unnamed.";
+  }
   window.openai?.notifyIntrinsicHeight?.(document.documentElement.scrollHeight);
 }
 
@@ -333,10 +374,11 @@ async function refreshLeaderboard(fresh = false): Promise<void> {
 }
 
 async function submitCompletedRun(run: RunReport, runId: number): Promise<void> {
-  if (!leaderboardClient || !leaderboardLocalState || !storage) {
-    const reason = leaderboardLocalState
-      ? "Shared score unavailable in this build."
-      : "Local storage unavailable; score stayed local.";
+  await profileInitializationPromise;
+  if (!leaderboardClient || !leaderboardProfile) {
+    const reason = leaderboardClient
+      ? "Permanent profile unavailable; score stayed local."
+      : "Shared score unavailable in this build.";
     submissionMessage = reason;
     setOverlaySubmissionStatus(reason, runId);
     renderLeaderboard();
@@ -348,16 +390,19 @@ async function submitCompletedRun(run: RunReport, runId: number): Promise<void> 
   renderLeaderboard();
   try {
     const result = await leaderboardClient.submitRun({
-      playerId: leaderboardLocalState.playerId,
-      nickname: leaderboardLocalState.nickname,
+      playerId: leaderboardProfile.playerId,
+      nickname: leaderboardProfile.nickname,
       score: run.score,
       durationMs: run.durationMs,
       rulesVersion: 1,
     });
     applyRunResponse(result);
-    submissionMessage = result.rank === null
-      ? "Run counted. Add a display name to join the public board."
-      : `Run counted · rank #${result.rank}${result.personalBest ? " · new shared best" : ""}`;
+    const profileConsistent = await reconcileAuthoritativeWorkerName(result);
+    submissionMessage = !profileConsistent && result.nickname
+      ? `Run counted. The public board already has this player ID locked as ${result.nickname}; the local permanent profile could not be synchronized.`
+      : result.rank === null
+        ? "Run counted. Add a display name to join the public board."
+        : `Run counted · rank #${result.rank}${result.personalBest ? " · new shared best" : ""}`;
     setOverlaySubmissionStatus(submissionMessage, runId);
     renderLeaderboard();
     if (result.personalBest) await refreshLeaderboard(true);
@@ -369,13 +414,32 @@ async function submitCompletedRun(run: RunReport, runId: number): Promise<void> 
 }
 
 function applyRunResponse(result: RunResponse): void {
-  if (!leaderboardLocalState || !storage) return;
-  leaderboardLocalState = {
-    ...leaderboardLocalState,
+  leaderboardResultState = {
     rank: result.rank,
     bestScore: result.bestScore,
   };
-  saveLeaderboardResult(storage, result);
+  if (storage) saveLeaderboardResult(storage, result);
+}
+
+async function reconcileAuthoritativeWorkerName(result: RunResponse): Promise<boolean> {
+  if (!result.nickname) return true;
+  if (leaderboardProfile?.nickname === result.nickname) return true;
+  if (leaderboardProfile?.nickname !== null || !profileApp) return false;
+  try {
+    const lockResult = await profileApp.callServerTool({
+      name: LOCK_DISPLAY_NAME_TOOL_NAME,
+      arguments: { displayName: result.nickname },
+    });
+    const profile = parseLockedProfile(lockResult);
+    if (!profile) return false;
+    leaderboardProfile = profile;
+    return profile.nickname === result.nickname;
+  } catch {
+    profileApp = undefined;
+    leaderboardProfile = undefined;
+    profilePhase = "unavailable";
+    return false;
+  }
 }
 
 function ensureAudio(): AudioContext | undefined {
@@ -440,24 +504,39 @@ leaderboardRefresh.addEventListener("click", () => {
   void refreshLeaderboard(true);
 });
 
-nicknameForm.addEventListener("submit", (event) => {
+nicknameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!storage || !leaderboardLocalState) {
-    nicknameStatus.textContent = "Local storage is unavailable; gameplay still works.";
+  if (!profileApp || profilePhase !== "ready" || !leaderboardProfile) {
+    profileMessage = "Permanent profile storage is unavailable; gameplay still works.";
+    renderLeaderboard();
     return;
   }
 
-  const nickname = saveNickname(storage, nicknameInput.value);
-  if (nickname === undefined) {
-    nicknameStatus.textContent = `Use ${MAX_NICKNAME_LENGTH} characters or fewer without control characters.`;
+  const nickname = normalizeNickname(nicknameInput.value);
+  if (!nickname) {
+    profileMessage = `Choose a non-empty name using ${MAX_NICKNAME_LENGTH} characters or fewer without control characters.`;
+    renderLeaderboard();
     return;
   }
 
-  leaderboardLocalState = { ...leaderboardLocalState, nickname };
-  nicknameInput.value = nickname ?? "";
-  submissionMessage = nickname
-    ? "Name saved for your next completed run."
-    : "Display name removed. Future runs will stay off the public board.";
+  profileLocking = true;
+  profileMessage = "Locking this permanent display name…";
+  renderLeaderboard();
+  try {
+    const result = await profileApp.callServerTool({
+      name: LOCK_DISPLAY_NAME_TOOL_NAME,
+      arguments: { displayName: nickname },
+    });
+    const profile = parseLockedProfile(result);
+    if (!profile) throw new Error("Codex Run returned an invalid profile.");
+    leaderboardProfile = profile;
+    profileLocking = false;
+    profileMessage = "";
+    submissionMessage = `Display name ${profile.nickname ?? ""} is locked permanently for this Codex installation.`;
+  } catch {
+    profileLocking = false;
+    profileMessage = "Codex could not lock the name. Nothing changed, and local play is unaffected.";
+  }
   renderLeaderboard();
 });
 
@@ -562,30 +641,55 @@ detectHostFeatures();
 setTimeout(detectHostFeatures, 400);
 setTimeout(detectHostFeatures, 1_500);
 
-function initializeMcpAppsBridge(): void {
-  if (window.parent === window) return;
-  const id = 1;
-  const onMessage = (event: MessageEvent) => {
-    if (event.source !== window.parent || event.data?.jsonrpc !== "2.0" || event.data?.id !== id) return;
-    window.removeEventListener("message", onMessage);
-    if (!event.data.error) {
-      window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }, "*");
-    }
-  };
-  window.addEventListener("message", onMessage, { passive: true });
-  window.parent.postMessage(
-    {
-      jsonrpc: "2.0",
-      id,
-      method: "ui/initialize",
-      params: {
-        appInfo: { name: "codex-run", version: "0.1.0" },
-        appCapabilities: {},
-        protocolVersion: "2026-01-26",
-      },
-    },
-    "*",
+async function initializePermanentProfile(): Promise<void> {
+  if (window.parent === window) {
+    profilePhase = "unavailable";
+    renderLeaderboard();
+    return;
+  }
+
+  const appBridge = new App(
+    { name: "codex-run", version: "0.1.0" },
+    {},
+    { autoResize: false },
   );
+  try {
+    await appBridge.connect();
+    if (!appBridge.getHostCapabilities()?.serverTools) {
+      throw new Error("This host does not proxy MCP server tool calls to apps.");
+    }
+
+    const legacyProfile = storage ? loadLegacyLeaderboardProfile(storage) : undefined;
+    const result = await appBridge.callServerTool({
+      name: INITIALIZE_PROFILE_TOOL_NAME,
+      arguments: legacyProfile
+        ? {
+            legacyPlayerId: legacyProfile.playerId,
+            legacyNickname: legacyProfile.nickname,
+          }
+        : {},
+    });
+    const profile = parseInitializedProfile(result);
+    if (!profile) throw new Error("Codex Run returned an invalid installation profile.");
+    if (legacyProfile?.playerId !== profile.playerId) {
+      leaderboardResultState = { rank: null, bestScore: null };
+    }
+
+    profileApp = appBridge;
+    leaderboardProfile = profile;
+    profilePhase = "ready";
+  } catch (error) {
+    console.warn("Codex Run permanent profile storage is unavailable", error);
+    profileApp = undefined;
+    leaderboardProfile = undefined;
+    profilePhase = "unavailable";
+    try {
+      await appBridge.close();
+    } catch {
+      // The connection may already be closed after a failed handshake.
+    }
+  }
+  renderLeaderboard();
 }
 
 function drawBackground(state: GameState): void {
@@ -753,10 +857,9 @@ const resizeObserver = new ResizeObserver(() => {
 });
 resizeObserver.observe(document.querySelector(".shell")!);
 
-initializeMcpAppsBridge();
-nicknameInput.value = leaderboardLocalState?.nickname ?? "";
 refreshHud();
 updateOverlay();
 renderLeaderboard();
+profileInitializationPromise = initializePermanentProfile();
 void refreshLeaderboard();
 requestAnimationFrame(frame);

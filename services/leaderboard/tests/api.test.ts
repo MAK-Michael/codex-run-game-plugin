@@ -62,13 +62,65 @@ describe("leaderboard API", () => {
   it("counts anonymous runs without publishing them", async () => {
     const response = await post(run({ nickname: null }));
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ counted: true, rank: null, completedRuns: 1 });
+    expect(await response.json()).toMatchObject({
+      counted: true,
+      rank: null,
+      nickname: null,
+      nameLocked: false,
+      completedRuns: 1,
+    });
 
     const publicResponse = await leaderboard();
     expect(await publicResponse.json()).toEqual({
       entries: [],
       stats: { completedRuns: 1, approximatePlayers: 1 },
     });
+  });
+
+  it("locks the first non-null name and ignores later rename or removal submissions", async () => {
+    const playerId = uuid(7);
+    const first = await post(run({ playerId, nickname: "FIRST", score: 80 }));
+    expect(await first.json()).toMatchObject({
+      nickname: "FIRST",
+      nameLocked: true,
+      rank: 1,
+    });
+
+    const rename = await post(run({ playerId, nickname: "RENAME", score: 169, durationMs: 4_000 }));
+    expect(await rename.json()).toMatchObject({
+      nickname: "FIRST",
+      nameLocked: true,
+      bestScore: 169,
+      completedRuns: 2,
+    });
+
+    const removal = await post(run({ playerId, nickname: null, score: 78 }));
+    expect(await removal.json()).toMatchObject({
+      nickname: "FIRST",
+      nameLocked: true,
+      bestScore: 169,
+      completedRuns: 3,
+    });
+
+    const body = (await (await leaderboard()).json()) as {
+      entries: Array<{ nickname: string; score: number }>;
+    };
+    expect(body.entries).toEqual([
+      expect.objectContaining({ nickname: "FIRST", score: 169 }),
+    ]);
+  });
+
+  it("allows an anonymous player to lock its first name on a later run", async () => {
+    const playerId = uuid(8);
+    const anonymous = await post(run({ playerId, nickname: null }));
+    expect(await anonymous.json()).toMatchObject({ nickname: null, nameLocked: false, rank: null });
+
+    const named = await post(run({ playerId, nickname: "LATER" }));
+    expect(await named.json()).toMatchObject({ nickname: "LATER", nameLocked: true, rank: 1 });
+    const body = (await (await leaderboard()).json()) as {
+      entries: Array<{ nickname: string }>;
+    };
+    expect(body.entries.map((entry) => entry.nickname)).toEqual(["LATER"]);
   });
 
   it("publishes one best score per named player and counts every valid run", async () => {

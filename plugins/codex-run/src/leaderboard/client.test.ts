@@ -29,6 +29,8 @@ describe("leaderboard client", () => {
         personalBest: true,
         bestScore: 80,
         rank: 4,
+        nickname: "MAK",
+        nameLocked: true,
         completedRuns: 248,
       }, { status: 201 });
     });
@@ -42,6 +44,7 @@ describe("leaderboard client", () => {
     });
     assert.equal(JSON.parse(capturedBody).rulesVersion, 1);
     assert.equal(response.rank, 4);
+    assert.equal(response.nickname, "MAK");
   });
 
   it("rejects malformed success responses", async () => {
